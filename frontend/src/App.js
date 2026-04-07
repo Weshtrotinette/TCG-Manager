@@ -25,6 +25,7 @@ import { RolesPage } from "./pages/RolesPage";
 
 import { WhitelistPage } from "./pages/WhitelistPage";
 import { TournamentPage } from "./pages/TournamentPage";
+import { SalesPage } from "./pages/SalesPage";
 
 // Router component that handles auth callback detection
 function AppRouter() {
@@ -58,6 +59,7 @@ function AppRouter() {
         <Route path="/pos" element={<POSPage />} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/expenses" element={<ExpensesPage />} />
+        <Route path="/sales" element={<SalesPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/users" element={<UsersPage />} />

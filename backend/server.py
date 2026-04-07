@@ -1755,6 +1755,19 @@ async def get_dashboard(user: User = Depends(get_current_user)):
     ]).to_list(1)
     month_sub_revenue = month_sub_payments[0]["total"] if month_sub_payments else 0
     
+    # Monthly entry fees
+    month_events = await db.events.find({
+        "date": {"$gte": month_start.isoformat()}
+    }, {"_id": 0}).to_list(100)
+    month_entry_fees = 0
+    for ev in month_events:
+        if ev.get("entry_fee", 0) > 0:
+            paid_entries = await db.participations.count_documents({
+                "event_id": ev["event_id"],
+                "entry_paid": True
+            })
+            month_entry_fees += paid_entries * ev.get("entry_fee", 0)
+    
     # Annual financials
     year_sales = await db.sales.find({
         "created_at": {"$gte": year_start.isoformat()},
@@ -1773,6 +1786,19 @@ async def get_dashboard(user: User = Depends(get_current_user)):
         {"$group": {"_id": None, "total": {"$sum": "$payments.amount"}}}
     ]).to_list(1)
     year_sub_revenue = year_sub_payments[0]["total"] if year_sub_payments else 0
+    
+    # Annual entry fees
+    year_events = await db.events.find({
+        "date": {"$gte": year_start.isoformat()}
+    }, {"_id": 0}).to_list(500)
+    year_entry_fees = 0
+    for ev in year_events:
+        if ev.get("entry_fee", 0) > 0:
+            paid_entries = await db.participations.count_documents({
+                "event_id": ev["event_id"],
+                "entry_paid": True
+            })
+            year_entry_fees += paid_entries * ev.get("entry_fee", 0)
     
     # Low stock products
     low_stock = await db.products.find({
@@ -1802,14 +1828,14 @@ async def get_dashboard(user: User = Depends(get_current_user)):
         },
         "financials": {
             "month": {
-                "revenue": month_revenue + month_sub_revenue,
+                "revenue": month_revenue + month_sub_revenue + month_entry_fees,
                 "expenses": month_expense_total,
-                "result": (month_revenue + month_sub_revenue) - month_expense_total
+                "result": (month_revenue + month_sub_revenue + month_entry_fees) - month_expense_total
             },
             "year": {
-                "revenue": year_revenue + year_sub_revenue,
+                "revenue": year_revenue + year_sub_revenue + year_entry_fees,
                 "expenses": year_expense_total,
-                "result": (year_revenue + year_sub_revenue) - year_expense_total
+                "result": (year_revenue + year_sub_revenue + year_entry_fees) - year_expense_total
             }
         },
         "upcoming_events": upcoming_events,
@@ -1845,28 +1871,53 @@ async def get_financial_report(
                 else:
                     revenue_by_category["ventes_consommables"] += item.get("total_price", 0)
     
-    # Subscription revenue
-    sub_payments = await db.subscriptions.aggregate([
+    # Subscription revenue with monthly breakdown
+    sub_payment_docs = await db.subscriptions.aggregate([
         {"$unwind": "$payments"},
         {"$match": {
             "payments.payment_date": {"$gte": year_start.isoformat(), "$lte": year_end.isoformat()}
         }},
-        {"$group": {"_id": None, "total": {"$sum": "$payments.amount"}}}
-    ]).to_list(1)
-    revenue_by_category["cotisations"] = sub_payments[0]["total"] if sub_payments else 0
+        {"$project": {
+            "payment_date": "$payments.payment_date",
+            "amount": "$payments.amount"
+        }}
+    ]).to_list(10000)
     
-    # Entry fees (from participations)
+    sub_by_month = {}
+    total_sub = 0
+    for sp in sub_payment_docs:
+        total_sub += sp.get("amount", 0)
+        try:
+            pd_str = sp.get("payment_date", "")
+            pd = datetime.fromisoformat(pd_str.replace("Z", "+00:00"))
+            if pd.year == target_year:
+                sub_by_month[pd.month] = sub_by_month.get(pd.month, 0) + sp.get("amount", 0)
+        except Exception:
+            pass
+    revenue_by_category["cotisations"] = total_sub
+    
+    # Entry fees (from participations) with monthly breakdown
     events = await db.events.find({
         "date": {"$gte": year_start.isoformat(), "$lte": year_end.isoformat()}
     }, {"_id": 0}).to_list(500)
     
     entry_fee_total = 0
+    entry_fees_by_month = {}
     for event in events:
         paid_entries = await db.participations.count_documents({
             "event_id": event["event_id"],
             "entry_paid": True
         })
-        entry_fee_total += paid_entries * event.get("entry_fee", 0)
+        fee = paid_entries * event.get("entry_fee", 0)
+        entry_fee_total += fee
+        event_date_str = event.get("date", "")
+        if event_date_str:
+            try:
+                event_dt = datetime.fromisoformat(event_date_str.replace("Z", "+00:00"))
+                if event_dt.year == target_year:
+                    entry_fees_by_month[event_dt.month] = entry_fees_by_month.get(event_dt.month, 0) + fee
+            except Exception:
+                pass
     revenue_by_category["inscriptions_tournois"] = entry_fee_total
     
     # Expenses by category
@@ -1879,7 +1930,7 @@ async def get_financial_report(
         cat = expense.get("category", "divers")
         expenses_by_category[cat] = expenses_by_category.get(cat, 0) + expense.get("amount", 0)
     
-    # Monthly breakdown
+    # Monthly breakdown (includes ALL revenue sources)
     monthly_data = []
     for month in range(1, 13):
         month_start = datetime(target_year, month, 1, tzinfo=timezone.utc)
@@ -1889,7 +1940,12 @@ async def get_financial_report(
             month_end = datetime(target_year, month + 1, 1, tzinfo=timezone.utc)
         
         month_sales = [s for s in sales if month_start.isoformat() <= s.get("created_at", "") < month_end.isoformat()]
-        month_revenue = sum(s.get("total_amount", 0) for s in month_sales)
+        month_sales_revenue = sum(s.get("total_amount", 0) for s in month_sales)
+        
+        # Add subscription and entry fee revenue for this month
+        month_sub = sub_by_month.get(month, 0)
+        month_entry = entry_fees_by_month.get(month, 0)
+        month_revenue = month_sales_revenue + month_sub + month_entry
         
         month_expenses = [e for e in expenses if month_start.isoformat() <= e.get("expense_date", "") < month_end.isoformat()]
         month_expense_total = sum(e.get("amount", 0) for e in month_expenses)
@@ -1897,6 +1953,9 @@ async def get_financial_report(
         monthly_data.append({
             "month": month,
             "revenue": month_revenue,
+            "sales": month_sales_revenue,
+            "subscriptions": month_sub,
+            "entry_fees": month_entry,
             "expenses": month_expense_total,
             "result": month_revenue - month_expense_total
         })

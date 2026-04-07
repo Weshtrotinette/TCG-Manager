@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
@@ -37,6 +38,7 @@ const navigation = [
   { name: 'Cotisations', href: '/subscriptions', icon: CreditCard, permission: 'subscriptions:read' },
   { name: 'Événements', href: '/events', icon: Calendar, permission: 'events:read' },
   { name: 'Caisse rapide', href: '/pos', icon: ShoppingCart, permission: 'sales:create' },
+  { name: 'Ventes', href: '/sales', icon: ClipboardList, permission: 'sales:read' },
   { name: 'Produits & Stocks', href: '/products', icon: Package, permission: 'products:read' },
   { name: 'Dépenses', href: '/expenses', icon: Receipt, permission: 'expenses:read' },
   { name: 'Rapports', href: '/reports', icon: BarChart3, permission: 'reports:read' },
