@@ -4,13 +4,7 @@ import { api } from '../lib/api';
 import { formatCurrency, formatDate, memberStatusLabels, paymentMethodLabels, cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
-} from '../components/ui/select';
+import { Input } from '../components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -41,6 +35,7 @@ export function EventDetailPage() {
   const [loading, setLoading] = useState(true);
   const [isAddParticipantOpen, setIsAddParticipantOpen] = useState(false);
   const [selectedMemberId, setSelectedMemberId] = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
 
   useEffect(() => {
     loadData();
@@ -304,27 +299,55 @@ export function EventDetailPage() {
       </div>
 
       {/* Add Participant Dialog */}
-      <Dialog open={isAddParticipantOpen} onOpenChange={setIsAddParticipantOpen}>
+      <Dialog open={isAddParticipantOpen} onOpenChange={(open) => { setIsAddParticipantOpen(open); if (!open) { setMemberSearch(''); setSelectedMemberId(''); } }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Ajouter un participant</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Membre</label>
-              <Select value={selectedMemberId} onValueChange={setSelectedMemberId}>
-                <SelectTrigger data-testid="select-member">
-                  <SelectValue placeholder="Sélectionner un membre" />
-                </SelectTrigger>
-                <SelectContent>
-                  {getAvailableMembers().map(member => (
-                    <SelectItem key={member.member_id} value={member.member_id}>
-                      {member.first_name} {member.last_name}
-                      {member.pseudo && ` (${member.pseudo})`}
-                    </SelectItem>
+              <label className="text-sm font-medium">Rechercher un membre</label>
+              <Input
+                placeholder="Tapez un nom, pseudo ou email..."
+                value={memberSearch}
+                onChange={(e) => { setMemberSearch(e.target.value); setSelectedMemberId(''); }}
+                autoFocus
+                data-testid="member-search-input"
+              />
+              <div className="max-h-48 overflow-y-auto border border-border rounded-md">
+                {getAvailableMembers()
+                  .filter(m => {
+                    if (!memberSearch) return true;
+                    const q = memberSearch.toLowerCase();
+                    return `${m.first_name} ${m.last_name} ${m.pseudo || ''} ${m.email || ''}`.toLowerCase().includes(q);
+                  })
+                  .map(member => (
+                    <button
+                      key={member.member_id}
+                      type="button"
+                      className={cn(
+                        "w-full text-left px-4 py-3 text-sm transition-colors border-b border-border last:border-b-0",
+                        selectedMemberId === member.member_id
+                          ? "bg-primary/10 font-semibold"
+                          : "hover:bg-muted"
+                      )}
+                      onClick={() => setSelectedMemberId(member.member_id)}
+                      data-testid={`pick-member-${member.member_id}`}
+                    >
+                      <span>{member.first_name} {member.last_name}</span>
+                      {member.pseudo && <span className="ml-1 text-muted-foreground">({member.pseudo})</span>}
+                    </button>
                   ))}
-                </SelectContent>
-              </Select>
+                {getAvailableMembers().filter(m => {
+                  if (!memberSearch) return true;
+                  const q = memberSearch.toLowerCase();
+                  return `${m.first_name} ${m.last_name} ${m.pseudo || ''} ${m.email || ''}`.toLowerCase().includes(q);
+                }).length === 0 && (
+                  <div className="px-4 py-3 text-sm text-muted-foreground text-center">
+                    Aucun membre trouvé
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <DialogFooter>
