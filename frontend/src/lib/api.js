@@ -72,6 +72,27 @@ class ApiClient {
     return this.request(`/subscriptions/${subscriptionId}/payments`, { method: 'POST', body: data });
   }
 
+  updateSubscription(subscriptionId, params) {
+    const query = new URLSearchParams(params).toString();
+    return this.request(`/subscriptions/${subscriptionId}?${query}`, { method: 'PUT' });
+  }
+
+  deleteSubscription(subscriptionId) {
+    return this.request(`/subscriptions/${subscriptionId}`, { method: 'DELETE' });
+  }
+
+  startNewSeason() {
+    return this.request('/subscriptions/new-season', { method: 'POST' });
+  }
+
+  getSubscriptionArchives() {
+    return this.request('/subscriptions/archives');
+  }
+
+  getSubscriptionArchive(season) {
+    return this.request(`/subscriptions/archives/${encodeURIComponent(season)}`);
+  }
+
   // Events
   getEvents(params = {}) {
     const query = new URLSearchParams(params).toString();

@@ -1249,6 +1249,52 @@ async def create_subscription(sub_data: SubscriptionCreate, user: User = Depends
     
     return {"subscription_id": subscription.subscription_id, "message": "Cotisation créée"}
 
+@api_router.put("/subscriptions/{subscription_id}")
+async def update_subscription(subscription_id: str, user: User = Depends(get_current_user),
+                               amount_due: Optional[float] = None, member_id: Optional[str] = None):
+    """Update a subscription (amount_due, member_id)"""
+    sub = await db.subscriptions.find_one({"subscription_id": subscription_id}, {"_id": 0})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Cotisation non trouvée")
+    
+    update_data = {}
+    if amount_due is not None:
+        update_data["amount_due"] = amount_due
+        # Recalculate status
+        paid = sub.get("amount_paid", 0)
+        if paid >= amount_due:
+            update_data["status"] = "payee"
+        elif paid > 0:
+            update_data["status"] = "partielle"
+        else:
+            update_data["status"] = "non_payee"
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="Aucune modification")
+    
+    await db.subscriptions.update_one({"subscription_id": subscription_id}, {"$set": update_data})
+    
+    # Refresh member status
+    await refresh_adherent_status(sub["member_id"])
+    
+    await log_action(user.user_id, "update", "subscriptions", subscription_id, "Cotisation modifiée")
+    return {"message": "Cotisation modifiée"}
+
+@api_router.delete("/subscriptions/{subscription_id}")
+async def delete_subscription(subscription_id: str, user: User = Depends(get_current_user)):
+    """Delete a subscription"""
+    sub = await db.subscriptions.find_one({"subscription_id": subscription_id}, {"_id": 0})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Cotisation non trouvée")
+    
+    await db.subscriptions.delete_one({"subscription_id": subscription_id})
+    
+    # Refresh member status
+    await refresh_adherent_status(sub["member_id"])
+    
+    await log_action(user.user_id, "delete", "subscriptions", subscription_id, "Cotisation supprimée")
+    return {"message": "Cotisation supprimée"}
+
 @api_router.post("/subscriptions/{subscription_id}/payments")
 async def add_payment(subscription_id: str, payment_data: PaymentCreate, user: User = Depends(get_current_user)):
     """Add a payment to a subscription"""
@@ -1285,6 +1331,72 @@ async def add_payment(subscription_id: str, payment_data: PaymentCreate, user: U
                      f"Paiement de {payment.amount}€ enregistré")
     
     return {"message": "Paiement enregistré", "new_status": new_status}
+
+@api_router.post("/subscriptions/new-season")
+async def start_new_season(user: User = Depends(get_current_user)):
+    """Archive current subscriptions, start a new season, reset all adherent members"""
+    settings = await db.settings.find_one({"settings_id": "main_settings"}, {"_id": 0})
+    if not settings:
+        raise HTTPException(status_code=500, detail="Paramètres non trouvés")
+    
+    old_season = settings.get("current_season", "")
+    new_season = str(datetime.now(timezone.utc).year)
+    
+    # Get current subscriptions to archive
+    current_subs = await db.subscriptions.find({}, {"_id": 0}).to_list(10000)
+    
+    if current_subs:
+        # Archive them
+        archive_doc = {
+            "archive_id": f"archive_{uuid.uuid4().hex[:12]}",
+            "season": old_season,
+            "archived_at": datetime.now(timezone.utc).isoformat(),
+            "archived_by": user.user_id,
+            "subscriptions": current_subs,
+            "total_due": sum(s.get("amount_due", 0) for s in current_subs),
+            "total_paid": sum(s.get("amount_paid", 0) for s in current_subs),
+            "count": len(current_subs),
+        }
+        await db.subscription_archives.insert_one(archive_doc)
+        
+        # Delete current subscriptions
+        await db.subscriptions.delete_many({})
+    
+    # Update season in settings
+    await db.settings.update_one(
+        {"settings_id": "main_settings"},
+        {"$set": {"current_season": new_season}}
+    )
+    
+    # Reset all adherent members to non_a_jour (except archived)
+    await db.members.update_many(
+        {"member_type": "adherent", "status": {"$ne": "archive"}},
+        {"$set": {"status": "non_a_jour"}}
+    )
+    
+    await log_action(user.user_id, "create", "season", new_season, 
+                     f"Nouvelle saison {new_season} - {len(current_subs)} cotisations archivées depuis {old_season}")
+    
+    return {
+        "message": f"Saison {new_season} démarrée",
+        "archived_count": len(current_subs),
+        "old_season": old_season,
+        "new_season": new_season,
+    }
+
+@api_router.get("/subscriptions/archives")
+async def list_subscription_archives(user: User = Depends(get_current_user)):
+    """List all archived seasons"""
+    archives = await db.subscription_archives.find({}, {"_id": 0, "subscriptions": 0}).sort("archived_at", -1).to_list(100)
+    return archives
+
+@api_router.get("/subscriptions/archives/{season}")
+async def get_subscription_archive(season: str, user: User = Depends(get_current_user)):
+    """Get archived subscriptions for a specific season"""
+    archive = await db.subscription_archives.find_one({"season": season}, {"_id": 0})
+    if not archive:
+        raise HTTPException(status_code=404, detail="Archive non trouvée")
+    return archive
 
 
 # =============================================================================
@@ -1873,9 +1985,9 @@ async def get_dashboard(user: User = Depends(get_current_user)):
         },
         "financials": {
             "month": {
-                "revenue": month_revenue + month_sub_revenue + month_entry_fees,
+                "revenue": month_revenue,
                 "expenses": month_expense_total,
-                "result": (month_revenue + month_sub_revenue + month_entry_fees) - month_expense_total
+                "result": month_revenue - month_expense_total
             },
             "year": {
                 "revenue": year_revenue + year_sub_revenue + year_entry_fees,
