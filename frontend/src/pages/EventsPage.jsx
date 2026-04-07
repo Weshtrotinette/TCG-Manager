@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
-import { formatCurrency, formatDate } from '../lib/utils';
+import { formatCurrency, formatDate, eventTypeLabels, eventFormatLabels } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -19,15 +19,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '../components/ui/dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../components/ui/table';
-import { Plus, MapPin, Users, Edit, Trash2, Eye } from 'lucide-react';
+import { Plus, MapPin, Users, Edit, Trash2, Eye, Swords } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
@@ -35,6 +27,7 @@ export function EventsPage() {
   const { hasPermission } = useAuth();
   const navigate = useNavigate();
   const [events, setEvents] = useState([]);
+  const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
@@ -50,14 +43,18 @@ export function EventsPage() {
   });
 
   useEffect(() => {
-    loadEvents();
+    loadData();
   }, []);
 
-  const loadEvents = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      const data = await api.getEvents();
-      setEvents(data);
+      const [eventsData, settingsData] = await Promise.all([
+        api.getEvents(),
+        api.getSettings(),
+      ]);
+      setEvents(eventsData);
+      setSettings(settingsData);
     } catch (err) {
       toast.error('Erreur lors du chargement des événements');
     } finally {
@@ -84,7 +81,7 @@ export function EventsPage() {
       }
       setIsDialogOpen(false);
       resetForm();
-      loadEvents();
+      loadData();
     } catch (err) {
       toast.error(err.message);
     }
@@ -111,7 +108,7 @@ export function EventsPage() {
       try {
         await api.deleteEvent(event.event_id);
         toast.success('Événement supprimé');
-        loadEvents();
+        loadData();
       } catch (err) {
         toast.error(err.message);
       }
@@ -137,6 +134,10 @@ export function EventsPage() {
     setIsDialogOpen(true);
   };
 
+  const eventTypes = settings?.event_types || Object.keys(eventTypeLabels);
+  const eventFormats = settings?.event_formats || Object.keys(eventFormatLabels);
+  const showFormat = formData.event_type === 'tournoi';
+
   const getStatusBadge = (event) => {
     const now = new Date();
     const eventDate = new Date(event.date);
@@ -152,6 +153,9 @@ export function EventsPage() {
     }
     return <span className="status-badge status-actif">À venir</span>;
   };
+
+  const getTypeLabel = (type) => eventTypeLabels[type] || type || '-';
+  const getFormatLabel = (format) => eventFormatLabels[format] || format || '';
 
   return (
     <div className="space-y-6" data-testid="events-page">
@@ -219,10 +223,10 @@ export function EventsPage() {
                 {(event.event_type || event.format) && (
                   <div className="flex gap-2 text-xs">
                     {event.event_type && (
-                      <span className="px-2 py-0.5 bg-muted">{event.event_type}</span>
+                      <span className="px-2 py-0.5 bg-muted font-medium">{getTypeLabel(event.event_type)}</span>
                     )}
                     {event.format && (
-                      <span className="px-2 py-0.5 bg-muted">{event.format}</span>
+                      <span className="px-2 py-0.5 bg-muted">{getFormatLabel(event.format)}</span>
                     )}
                   </div>
                 )}
@@ -238,6 +242,18 @@ export function EventsPage() {
                     <Eye className="h-4 w-4 mr-1" />
                     Détails
                   </Button>
+                  {event.event_type === 'tournoi' && (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => navigate(`/events/${event.event_id}/tournament`)}
+                      data-testid={`tournament-btn-${event.event_id}`}
+                    >
+                      <Swords className="h-4 w-4 mr-1" />
+                      Tournoi
+                    </Button>
+                  )}
                   {hasPermission('events:update') && (
                     <Button
                       variant="ghost"
@@ -307,24 +323,42 @@ export function EventsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="event_type">Type</Label>
-                <Input
-                  id="event_type"
+                <Select
                   value={formData.event_type}
-                  onChange={(e) => setFormData({ ...formData, event_type: e.target.value })}
-                  placeholder="Tournoi, Casual..."
-                  data-testid="event-type"
-                />
+                  onValueChange={(value) => setFormData({ ...formData, event_type: value, format: value !== 'tournoi' ? '' : formData.format })}
+                >
+                  <SelectTrigger data-testid="event-type">
+                    <SelectValue placeholder="Sélectionner..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {eventTypes.map(type => (
+                      <SelectItem key={type} value={type}>
+                        {eventTypeLabels[type] || type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="format">Format</Label>
-                <Input
-                  id="format"
-                  value={formData.format}
-                  onChange={(e) => setFormData({ ...formData, format: e.target.value })}
-                  placeholder="Standard, Modern..."
-                  data-testid="event-format"
-                />
-              </div>
+              {showFormat && (
+                <div className="space-y-2">
+                  <Label htmlFor="format">Format</Label>
+                  <Select
+                    value={formData.format}
+                    onValueChange={(value) => setFormData({ ...formData, format: value })}
+                  >
+                    <SelectTrigger data-testid="event-format">
+                      <SelectValue placeholder="Sélectionner..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {eventFormats.map(fmt => (
+                        <SelectItem key={fmt} value={fmt}>
+                          {eventFormatLabels[fmt] || fmt}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -339,7 +373,7 @@ export function EventsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="entry_fee">Frais d'inscription (€)</Label>
+                <Label htmlFor="entry_fee">Frais d'inscription</Label>
                 <Input
                   id="entry_fee"
                   type="number"

@@ -13,6 +13,8 @@ from datetime import datetime, timezone, timedelta
 import httpx
 import bcrypt
 import jwt
+import random
+import math
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -99,6 +101,7 @@ class Member(BaseModel):
     pseudo: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    member_type: str = "adherent"  # adherent, non_adherent
     first_participation_date: Optional[datetime] = None
     membership_date: Optional[datetime] = None
     status: str = "nouveau"  # nouveau, essai, actif, non_a_jour, archive
@@ -113,6 +116,7 @@ class MemberCreate(BaseModel):
     pseudo: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    member_type: str = "adherent"
     status: str = "nouveau"
     notes: Optional[str] = None
 
@@ -122,6 +126,7 @@ class MemberUpdate(BaseModel):
     pseudo: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    member_type: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
 
@@ -343,6 +348,8 @@ class Settings(BaseModel):
     member_statuses: List[str] = ["nouveau", "essai", "actif", "non_a_jour", "archive"]
     expense_categories: List[str] = ["consommables", "merchandising", "location", "lots", "materiel", "communication", "divers"]
     product_categories: List[str] = ["boissons", "nourriture", "formules", "accessoires", "textile", "goodies", "autres"]
+    event_types: List[str] = ["tournoi", "ligue", "session_libre", "demonstration", "atelier"]
+    event_formats: List[str] = ["suisse", "elimination_simple", "double_elimination", "round_robin", "poules_top_cut"]
 
 class SettingsUpdate(BaseModel):
     annual_subscription_amount: Optional[float] = None
@@ -354,6 +361,8 @@ class SettingsUpdate(BaseModel):
     member_statuses: Optional[List[str]] = None
     expense_categories: Optional[List[str]] = None
     product_categories: Optional[List[str]] = None
+    event_types: Optional[List[str]] = None
+    event_formats: Optional[List[str]] = None
 
 # --- Audit Log Model ---
 class AuditLog(BaseModel):
@@ -377,6 +386,54 @@ class WhitelistEntry(BaseModel):
 class WhitelistCreate(BaseModel):
     email: str
     note: Optional[str] = None
+
+# --- Tournament Models ---
+class TournamentMatch(BaseModel):
+    match_id: str = Field(default_factory=lambda: f"match_{uuid.uuid4().hex[:12]}")
+    round_number: int
+    table_number: Optional[int] = None
+    player1_id: str
+    player2_id: Optional[str] = None  # None = bye
+    player1_name: str = ""
+    player2_name: str = ""
+    player1_score: Optional[int] = None
+    player2_score: Optional[int] = None
+    winner_id: Optional[str] = None
+    is_draw: bool = False
+    status: str = "en_attente"  # en_attente, en_cours, termine
+
+class TournamentStanding(BaseModel):
+    member_id: str
+    member_name: str = ""
+    points: int = 0
+    wins: int = 0
+    losses: int = 0
+    draws: int = 0
+    games_played: int = 0
+    opponents: List[str] = []
+    buchholz: float = 0
+
+class Tournament(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    tournament_id: str = Field(default_factory=lambda: f"tourn_{uuid.uuid4().hex[:12]}")
+    event_id: str
+    format: str  # suisse, elimination_simple, double_elimination, round_robin, poules_top_cut
+    total_rounds: int = 0
+    current_round: int = 0
+    status: str = "inscription"  # inscription, en_cours, termine
+    participants: List[str] = []  # member_ids
+    matches: List[Dict[str, Any]] = []
+    standings: List[Dict[str, Any]] = []
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class TournamentCreate(BaseModel):
+    event_id: str
+    format: str
+    participant_ids: List[str] = []
+
+class MatchResultUpdate(BaseModel):
+    player1_score: int
+    player2_score: int
 
 # --- Email/Password Auth Models ---
 class RegisterRequest(BaseModel):
@@ -2036,6 +2093,606 @@ async def remove_from_whitelist(email: str, user: User = Depends(get_current_use
 
 
 # =============================================================================
+# TOURNAMENT ROUTES
+# =============================================================================
+
+def calculate_swiss_rounds(num_players: int) -> int:
+    """Calculate number of rounds for Swiss format"""
+    if num_players <= 1:
+        return 0
+    return math.ceil(math.log2(num_players))
+
+def calculate_standings(matches: list, participants: list, members_map: dict) -> list:
+    """Calculate tournament standings from matches"""
+    standings = {}
+    for pid in participants:
+        standings[pid] = {
+            "member_id": pid,
+            "member_name": members_map.get(pid, pid),
+            "points": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "games_played": 0,
+            "opponents": [],
+            "buchholz": 0
+        }
+    
+    for m in matches:
+        if m.get("status") != "termine":
+            continue
+        p1 = m.get("player1_id")
+        p2 = m.get("player2_id")
+        if not p1 or not p2:
+            # Bye - player1 wins automatically
+            if p1 and p1 in standings:
+                standings[p1]["points"] += 3
+                standings[p1]["wins"] += 1
+                standings[p1]["games_played"] += 1
+            continue
+        
+        if p1 in standings:
+            standings[p1]["games_played"] += 1
+            standings[p1]["opponents"].append(p2)
+        if p2 in standings:
+            standings[p2]["games_played"] += 1
+            standings[p2]["opponents"].append(p1)
+        
+        if m.get("is_draw"):
+            if p1 in standings:
+                standings[p1]["points"] += 1
+                standings[p1]["draws"] += 1
+            if p2 in standings:
+                standings[p2]["points"] += 1
+                standings[p2]["draws"] += 1
+        elif m.get("winner_id") == p1:
+            if p1 in standings:
+                standings[p1]["points"] += 3
+                standings[p1]["wins"] += 1
+            if p2 in standings:
+                standings[p2]["losses"] += 1
+        elif m.get("winner_id") == p2:
+            if p2 in standings:
+                standings[p2]["points"] += 3
+                standings[p2]["wins"] += 1
+            if p1 in standings:
+                standings[p1]["losses"] += 1
+    
+    # Calculate Buchholz (sum of opponents' points)
+    for pid, s in standings.items():
+        s["buchholz"] = sum(standings.get(opp, {}).get("points", 0) for opp in s["opponents"])
+    
+    result = sorted(standings.values(), key=lambda x: (-x["points"], -x["buchholz"], -x["wins"]))
+    for i, s in enumerate(result):
+        s["rank"] = i + 1
+    return result
+
+def generate_swiss_pairings(standings: list, all_matches: list, round_number: int) -> list:
+    """Generate Swiss pairings based on current standings"""
+    # Get list of players sorted by points
+    players = [s["member_id"] for s in standings]
+    
+    # Build set of past opponents for each player
+    past_opponents = {p: set() for p in players}
+    for m in all_matches:
+        p1 = m.get("player1_id")
+        p2 = m.get("player2_id")
+        if p1 and p2:
+            past_opponents.setdefault(p1, set()).add(p2)
+            past_opponents.setdefault(p2, set()).add(p1)
+    
+    # Greedy pairing: go through sorted standings, pair adjacent players
+    paired = set()
+    pairings = []
+    table = 1
+    
+    for i, player in enumerate(players):
+        if player in paired:
+            continue
+        
+        # Find best opponent (next unpaired player, preferably not yet faced)
+        best_opponent = None
+        for j in range(i + 1, len(players)):
+            candidate = players[j]
+            if candidate in paired:
+                continue
+            if candidate not in past_opponents.get(player, set()):
+                best_opponent = candidate
+                break
+        
+        # If no non-faced opponent, just take the next unpaired
+        if best_opponent is None:
+            for j in range(i + 1, len(players)):
+                candidate = players[j]
+                if candidate not in paired:
+                    best_opponent = candidate
+                    break
+        
+        if best_opponent:
+            pairings.append({
+                "match_id": f"match_{uuid.uuid4().hex[:12]}",
+                "round_number": round_number,
+                "table_number": table,
+                "player1_id": player,
+                "player2_id": best_opponent,
+                "player1_score": None,
+                "player2_score": None,
+                "winner_id": None,
+                "is_draw": False,
+                "status": "en_attente"
+            })
+            paired.add(player)
+            paired.add(best_opponent)
+            table += 1
+        else:
+            # Bye
+            pairings.append({
+                "match_id": f"match_{uuid.uuid4().hex[:12]}",
+                "round_number": round_number,
+                "table_number": table,
+                "player1_id": player,
+                "player2_id": None,
+                "player1_score": 2,
+                "player2_score": 0,
+                "winner_id": player,
+                "is_draw": False,
+                "status": "termine"
+            })
+            paired.add(player)
+            table += 1
+    
+    return pairings
+
+def generate_single_elimination_round(participants: list, round_number: int) -> list:
+    """Generate single elimination matches with proper seeding.
+    For the first round, pad to the nearest power of 2 with byes."""
+    if round_number == 1:
+        n = len(participants)
+        # Find next power of 2
+        bracket_size = 1
+        while bracket_size < n:
+            bracket_size *= 2
+        
+        # Pad with None (byes) at the end
+        seeded = list(participants) + [None] * (bracket_size - n)
+        
+        # Standard bracket seeding: 1v(n), 2v(n-1), etc.
+        # For simplicity, pair top half vs bottom half reversed
+        half = bracket_size // 2
+        top = seeded[:half]
+        bottom = list(reversed(seeded[half:]))
+        
+        pairings = []
+        table = 1
+        for i in range(half):
+            p1 = top[i]
+            p2 = bottom[i]
+            
+            if p1 is None and p2 is None:
+                continue
+            elif p2 is None:
+                # Player 1 gets a bye
+                pairings.append({
+                    "match_id": f"match_{uuid.uuid4().hex[:12]}",
+                    "round_number": round_number,
+                    "table_number": table,
+                    "player1_id": p1,
+                    "player2_id": None,
+                    "player1_score": 2,
+                    "player2_score": 0,
+                    "winner_id": p1,
+                    "is_draw": False,
+                    "status": "termine"
+                })
+            elif p1 is None:
+                pairings.append({
+                    "match_id": f"match_{uuid.uuid4().hex[:12]}",
+                    "round_number": round_number,
+                    "table_number": table,
+                    "player1_id": p2,
+                    "player2_id": None,
+                    "player1_score": 2,
+                    "player2_score": 0,
+                    "winner_id": p2,
+                    "is_draw": False,
+                    "status": "termine"
+                })
+            else:
+                pairings.append({
+                    "match_id": f"match_{uuid.uuid4().hex[:12]}",
+                    "round_number": round_number,
+                    "table_number": table,
+                    "player1_id": p1,
+                    "player2_id": p2,
+                    "player1_score": None,
+                    "player2_score": None,
+                    "winner_id": None,
+                    "is_draw": False,
+                    "status": "en_attente"
+                })
+            table += 1
+        return pairings
+    else:
+        # For subsequent rounds, just pair winners in order
+        pairings = []
+        table = 1
+        for i in range(0, len(participants) - 1, 2):
+            pairings.append({
+                "match_id": f"match_{uuid.uuid4().hex[:12]}",
+                "round_number": round_number,
+                "table_number": table,
+                "player1_id": participants[i],
+                "player2_id": participants[i + 1],
+                "player1_score": None,
+                "player2_score": None,
+                "winner_id": None,
+                "is_draw": False,
+                "status": "en_attente"
+            })
+            table += 1
+        if len(participants) % 2 == 1:
+            pairings.append({
+                "match_id": f"match_{uuid.uuid4().hex[:12]}",
+                "round_number": round_number,
+                "table_number": table,
+                "player1_id": participants[-1],
+                "player2_id": None,
+                "player1_score": 2,
+                "player2_score": 0,
+                "winner_id": participants[-1],
+                "is_draw": False,
+                "status": "termine"
+            })
+        return pairings
+
+def generate_round_robin_matches(participants: list) -> list:
+    """Generate round-robin matches distributed into proper rounds using the circle method.
+    Each player plays exactly once per round."""
+    n = len(participants)
+    players = list(participants)
+    
+    # If odd number, add a dummy player for byes
+    has_bye = False
+    if n % 2 == 1:
+        players.append(None)
+        has_bye = True
+        n += 1
+    
+    num_rounds = n - 1
+    matches = []
+    table_global = 1
+    
+    for round_num in range(num_rounds):
+        round_number = round_num + 1
+        table = 1
+        
+        for i in range(n // 2):
+            p1 = players[i]
+            p2 = players[n - 1 - i]
+            
+            if p1 is None or p2 is None:
+                # Bye round - the real player gets a bye
+                real_player = p1 if p1 is not None else p2
+                if real_player:
+                    matches.append({
+                        "match_id": f"match_{uuid.uuid4().hex[:12]}",
+                        "round_number": round_number,
+                        "table_number": table,
+                        "player1_id": real_player,
+                        "player2_id": None,
+                        "player1_score": 2,
+                        "player2_score": 0,
+                        "winner_id": real_player,
+                        "is_draw": False,
+                        "status": "termine"
+                    })
+                    table += 1
+            else:
+                matches.append({
+                    "match_id": f"match_{uuid.uuid4().hex[:12]}",
+                    "round_number": round_number,
+                    "table_number": table,
+                    "player1_id": p1,
+                    "player2_id": p2,
+                    "player1_score": None,
+                    "player2_score": None,
+                    "winner_id": None,
+                    "is_draw": False,
+                    "status": "en_attente"
+                })
+                table += 1
+            table_global += 1
+        
+        # Rotate players (fix first player, rotate the rest)
+        players = [players[0]] + [players[-1]] + players[1:-1]
+    
+    return matches
+
+@api_router.get("/tournaments/event/{event_id}")
+async def get_tournament_by_event(event_id: str, user: User = Depends(get_current_user)):
+    """Get tournament for an event"""
+    tournament = await db.tournaments.find_one({"event_id": event_id}, {"_id": 0})
+    if not tournament:
+        return None
+    
+    # Enrich with member names
+    members_map = {}
+    for pid in tournament.get("participants", []):
+        member = await db.members.find_one({"member_id": pid}, {"_id": 0, "first_name": 1, "last_name": 1, "pseudo": 1})
+        if member:
+            name = f"{member['first_name']} {member['last_name']}"
+            if member.get("pseudo"):
+                name += f" ({member['pseudo']})"
+            members_map[pid] = name
+    
+    # Enrich matches with names
+    for m in tournament.get("matches", []):
+        m["player1_name"] = members_map.get(m.get("player1_id"), "")
+        if m.get("player2_id"):
+            m["player2_name"] = members_map.get(m.get("player2_id"), "")
+        else:
+            m["player2_name"] = "BYE"
+    
+    # Enrich standings
+    for s in tournament.get("standings", []):
+        s["member_name"] = members_map.get(s.get("member_id"), "")
+    
+    tournament["members_map"] = members_map
+    return tournament
+
+@api_router.post("/tournaments")
+async def create_tournament(data: TournamentCreate, user: User = Depends(get_current_user)):
+    """Create a tournament for an event"""
+    # Check event exists
+    event = await db.events.find_one({"event_id": data.event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Événement non trouvé")
+    
+    # Check no existing tournament
+    existing = await db.tournaments.find_one({"event_id": data.event_id}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Un tournoi existe déjà pour cet événement")
+    
+    # Get participant IDs - validate from event participations
+    participant_ids = data.participant_ids
+    
+    # Get event participations to validate eligibility
+    all_participations = await db.participations.find({"event_id": data.event_id}, {"_id": 0}).to_list(200)
+    participation_map = {p["member_id"]: p for p in all_participations}
+    is_free = not event.get("entry_fee") or event.get("entry_fee", 0) == 0
+    
+    if not participant_ids:
+        # Auto-select eligible participants
+        participant_ids = [
+            p["member_id"] for p in all_participations
+            if p.get("is_present") and (is_free or p.get("entry_paid"))
+        ]
+    else:
+        # Validate provided participant IDs are eligible
+        validated = []
+        for pid in participant_ids:
+            part = participation_map.get(pid)
+            if part and part.get("is_present") and (is_free or part.get("entry_paid")):
+                validated.append(pid)
+        participant_ids = validated
+    
+    if len(participant_ids) < 2:
+        raise HTTPException(status_code=400, detail="Il faut au moins 2 participants")
+    
+    # Build members map
+    members_map = {}
+    for pid in participant_ids:
+        member = await db.members.find_one({"member_id": pid}, {"_id": 0, "first_name": 1, "last_name": 1, "pseudo": 1})
+        if member:
+            name = f"{member['first_name']} {member['last_name']}"
+            if member.get("pseudo"):
+                name += f" ({member['pseudo']})"
+            members_map[pid] = name
+    
+    # Calculate rounds
+    fmt = data.format
+    if fmt == "suisse":
+        total_rounds = calculate_swiss_rounds(len(participant_ids))
+    elif fmt == "elimination_simple":
+        total_rounds = math.ceil(math.log2(len(participant_ids)))
+    elif fmt == "round_robin":
+        n = len(participant_ids)
+        total_rounds = n - 1 if n % 2 == 0 else n  # Circle method rounds
+    else:
+        total_rounds = calculate_swiss_rounds(len(participant_ids))
+    
+    # Generate initial matches
+    random.shuffle(participant_ids)
+    
+    if fmt == "suisse":
+        initial_standings = [{"member_id": pid, "member_name": members_map.get(pid, ""), "points": 0, "wins": 0, "losses": 0, "draws": 0, "games_played": 0, "opponents": [], "buchholz": 0, "rank": i+1} for i, pid in enumerate(participant_ids)]
+        matches = generate_swiss_pairings(initial_standings, [], 1)
+    elif fmt == "elimination_simple":
+        matches = generate_single_elimination_round(participant_ids, 1)
+    elif fmt == "round_robin":
+        matches = generate_round_robin_matches(participant_ids)
+    else:
+        initial_standings = [{"member_id": pid, "member_name": members_map.get(pid, ""), "points": 0, "wins": 0, "losses": 0, "draws": 0, "games_played": 0, "opponents": [], "buchholz": 0, "rank": i+1} for i, pid in enumerate(participant_ids)]
+        matches = generate_swiss_pairings(initial_standings, [], 1)
+    
+    # Add member names to matches
+    for m in matches:
+        m["player1_name"] = members_map.get(m["player1_id"], "")
+        m["player2_name"] = members_map.get(m.get("player2_id"), "BYE") if m.get("player2_id") else "BYE"
+    
+    tournament = Tournament(
+        event_id=data.event_id,
+        format=fmt,
+        total_rounds=total_rounds,
+        current_round=1,
+        status="en_cours",
+        participants=participant_ids,
+        matches=matches,
+        standings=calculate_standings(matches, participant_ids, members_map)
+    )
+    
+    doc = tournament.model_dump()
+    doc["created_at"] = doc["created_at"].isoformat()
+    await db.tournaments.insert_one(doc)
+    
+    await log_action(user.user_id, "create", "tournaments", tournament.tournament_id, f"Tournoi créé ({fmt}) pour {event['name']}")
+    
+    return {"tournament_id": tournament.tournament_id, "message": "Tournoi créé"}
+
+@api_router.put("/tournaments/{tournament_id}/match/{match_id}")
+async def update_match_result(tournament_id: str, match_id: str, result: MatchResultUpdate, user: User = Depends(get_current_user)):
+    """Update match result"""
+    tournament = await db.tournaments.find_one({"tournament_id": tournament_id}, {"_id": 0})
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournoi non trouvé")
+    
+    # Build members map
+    members_map = {}
+    for pid in tournament.get("participants", []):
+        member = await db.members.find_one({"member_id": pid}, {"_id": 0, "first_name": 1, "last_name": 1, "pseudo": 1})
+        if member:
+            name = f"{member['first_name']} {member['last_name']}"
+            if member.get("pseudo"):
+                name += f" ({member['pseudo']})"
+            members_map[pid] = name
+    
+    matches = tournament.get("matches", [])
+    match_found = False
+    
+    for m in matches:
+        if m["match_id"] == match_id:
+            m["player1_score"] = result.player1_score
+            m["player2_score"] = result.player2_score
+            m["status"] = "termine"
+            
+            if result.player1_score > result.player2_score:
+                m["winner_id"] = m["player1_id"]
+                m["is_draw"] = False
+            elif result.player2_score > result.player1_score:
+                m["winner_id"] = m["player2_id"]
+                m["is_draw"] = False
+            else:
+                m["winner_id"] = None
+                m["is_draw"] = True
+            
+            match_found = True
+            break
+    
+    if not match_found:
+        raise HTTPException(status_code=404, detail="Match non trouvé")
+    
+    # Recalculate standings
+    standings = calculate_standings(matches, tournament["participants"], members_map)
+    
+    await db.tournaments.update_one(
+        {"tournament_id": tournament_id},
+        {"$set": {"matches": matches, "standings": standings}}
+    )
+    
+    return {"message": "Résultat enregistré"}
+
+@api_router.post("/tournaments/{tournament_id}/next-round")
+async def generate_next_round(tournament_id: str, user: User = Depends(get_current_user)):
+    """Generate the next round of matches"""
+    tournament = await db.tournaments.find_one({"tournament_id": tournament_id}, {"_id": 0})
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournoi non trouvé")
+    
+    current_round = tournament.get("current_round", 1)
+    total_rounds = tournament.get("total_rounds", 1)
+    fmt = tournament.get("format", "suisse")
+    matches = tournament.get("matches", [])
+    participants = tournament.get("participants", [])
+    
+    # Build members map
+    members_map = {}
+    for pid in participants:
+        member = await db.members.find_one({"member_id": pid}, {"_id": 0, "first_name": 1, "last_name": 1, "pseudo": 1})
+        if member:
+            name = f"{member['first_name']} {member['last_name']}"
+            if member.get("pseudo"):
+                name += f" ({member['pseudo']})"
+            members_map[pid] = name
+    
+    # Check all current round matches are complete
+    current_round_matches = [m for m in matches if m.get("round_number") == current_round]
+    incomplete = [m for m in current_round_matches if m.get("status") != "termine"]
+    if incomplete:
+        raise HTTPException(status_code=400, detail=f"Il reste {len(incomplete)} match(s) non terminé(s) dans la ronde actuelle")
+    
+    if current_round >= total_rounds:
+        # Tournament is over
+        standings = calculate_standings(matches, participants, members_map)
+        await db.tournaments.update_one(
+            {"tournament_id": tournament_id},
+            {"$set": {"status": "termine", "standings": standings, "matches": matches}}
+        )
+        return {"message": "Tournoi terminé", "status": "termine"}
+    
+    next_round = current_round + 1
+    
+    if fmt == "suisse":
+        standings = calculate_standings(matches, participants, members_map)
+        new_matches = generate_swiss_pairings(standings, matches, next_round)
+    elif fmt == "elimination_simple":
+        # Winners advance
+        winners = [m["winner_id"] for m in current_round_matches if m.get("winner_id")]
+        if len(winners) < 2:
+            standings = calculate_standings(matches, participants, members_map)
+            await db.tournaments.update_one(
+                {"tournament_id": tournament_id},
+                {"$set": {"status": "termine", "standings": standings, "matches": matches}}
+            )
+            return {"message": "Tournoi terminé", "status": "termine"}
+        new_matches = generate_single_elimination_round(winners, next_round)
+    elif fmt == "round_robin":
+        # Round-robin matches are all pre-generated, just advance the pointer
+        next_round_matches = [m for m in matches if m.get("round_number") == next_round]
+        if not next_round_matches:
+            standings = calculate_standings(matches, participants, members_map)
+            await db.tournaments.update_one(
+                {"tournament_id": tournament_id},
+                {"$set": {"status": "termine", "standings": standings, "current_round": current_round}}
+            )
+            return {"message": "Tournoi terminé", "status": "termine"}
+        # Just advance current_round, matches are already there
+        standings = calculate_standings(matches, participants, members_map)
+        await db.tournaments.update_one(
+            {"tournament_id": tournament_id},
+            {"$set": {"current_round": next_round, "standings": standings}}
+        )
+        return {"message": f"Ronde {next_round} activée", "current_round": next_round}
+    else:
+        standings = calculate_standings(matches, participants, members_map)
+        new_matches = generate_swiss_pairings(standings, matches, next_round)
+    
+    # Add member names
+    for m in new_matches:
+        m["player1_name"] = members_map.get(m["player1_id"], "")
+        m["player2_name"] = members_map.get(m.get("player2_id"), "BYE") if m.get("player2_id") else "BYE"
+    
+    all_matches = matches + new_matches
+    standings = calculate_standings(all_matches, participants, members_map)
+    
+    await db.tournaments.update_one(
+        {"tournament_id": tournament_id},
+        {"$set": {"current_round": next_round, "matches": all_matches, "standings": standings}}
+    )
+    
+    return {"message": f"Ronde {next_round} générée", "current_round": next_round}
+
+@api_router.delete("/tournaments/{tournament_id}")
+async def delete_tournament(tournament_id: str, user: User = Depends(get_current_user)):
+    """Delete a tournament"""
+    result = await db.tournaments.delete_one({"tournament_id": tournament_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Tournoi non trouvé")
+    
+    await log_action(user.user_id, "delete", "tournaments", tournament_id, "Tournoi supprimé")
+    return {"message": "Tournoi supprimé"}
+
+
+# =============================================================================
 # INITIALIZATION
 # =============================================================================
 
@@ -2049,6 +2706,16 @@ async def startup_event():
         doc = default_settings.model_dump()
         await db.settings.insert_one(doc)
         logger.info("Default settings initialized")
+    else:
+        # Migrate: add new fields if missing
+        update_fields = {}
+        if "event_types" not in settings:
+            update_fields["event_types"] = ["tournoi", "ligue", "session_libre", "demonstration", "atelier"]
+        if "event_formats" not in settings:
+            update_fields["event_formats"] = ["suisse", "elimination_simple", "double_elimination", "round_robin", "poules_top_cut"]
+        if update_fields:
+            await db.settings.update_one({"settings_id": "main_settings"}, {"$set": update_fields})
+            logger.info("Settings migrated with new fields")
     
     # Initialize default roles if not exists
     roles_count = await db.roles.count_documents({})

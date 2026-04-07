@@ -238,6 +238,27 @@ class ApiClient {
   removeFromWhitelist(email) {
     return this.request(`/whitelist/${encodeURIComponent(email)}`, { method: 'DELETE' });
   }
+
+  // Tournaments
+  getTournamentByEvent(eventId) {
+    return this.request(`/tournaments/event/${eventId}`);
+  }
+
+  createTournament(data) {
+    return this.request('/tournaments', { method: 'POST', body: data });
+  }
+
+  updateMatchResult(tournamentId, matchId, data) {
+    return this.request(`/tournaments/${tournamentId}/match/${matchId}`, { method: 'PUT', body: data });
+  }
+
+  generateNextRound(tournamentId) {
+    return this.request(`/tournaments/${tournamentId}/next-round`, { method: 'POST' });
+  }
+
+  deleteTournament(tournamentId) {
+    return this.request(`/tournaments/${tournamentId}`, { method: 'DELETE' });
+  }
 }
 
 export const api = new ApiClient();

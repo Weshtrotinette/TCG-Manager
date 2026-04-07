@@ -17,6 +17,8 @@ export function SettingsPage() {
   const [newPaymentMethod, setNewPaymentMethod] = useState('');
   const [newExpenseCategory, setNewExpenseCategory] = useState('');
   const [newProductCategory, setNewProductCategory] = useState('');
+  const [newEventType, setNewEventType] = useState('');
+  const [newEventFormat, setNewEventFormat] = useState('');
 
   const canEdit = hasRole('president') || hasPermission('settings:update');
 
@@ -276,6 +278,88 @@ export function SettingsPage() {
               variant="outline"
               onClick={() => addToList('product_categories', newProductCategory.toLowerCase(), setNewProductCategory)}
               data-testid="add-product-category-btn"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Event Types */}
+      <div className="swiss-card space-y-4">
+        <h2 className="text-lg font-bold">Types d'événements</h2>
+        
+        <div className="flex flex-wrap gap-2">
+          {settings?.event_types?.map((type) => (
+            <div key={type} className="flex items-center gap-1 bg-muted px-3 py-1">
+              <span className="text-sm capitalize">{type.replace(/_/g, ' ')}</span>
+              {canEdit && (
+                <button
+                  onClick={() => removeFromList('event_types', type)}
+                  className="text-muted-foreground hover:text-destructive"
+                  data-testid={`remove-event-type-${type}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {canEdit && (
+          <div className="flex gap-2">
+            <Input
+              value={newEventType}
+              onChange={(e) => setNewEventType(e.target.value)}
+              placeholder="Nouveau type d'événement"
+              className="flex-1"
+              data-testid="new-event-type"
+            />
+            <Button
+              variant="outline"
+              onClick={() => addToList('event_types', newEventType.toLowerCase().replace(/\s+/g, '_'), setNewEventType)}
+              data-testid="add-event-type-btn"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Event Formats */}
+      <div className="swiss-card space-y-4">
+        <h2 className="text-lg font-bold">Formats de tournoi</h2>
+        
+        <div className="flex flex-wrap gap-2">
+          {settings?.event_formats?.map((format) => (
+            <div key={format} className="flex items-center gap-1 bg-muted px-3 py-1">
+              <span className="text-sm capitalize">{format.replace(/_/g, ' ')}</span>
+              {canEdit && (
+                <button
+                  onClick={() => removeFromList('event_formats', format)}
+                  className="text-muted-foreground hover:text-destructive"
+                  data-testid={`remove-event-format-${format}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {canEdit && (
+          <div className="flex gap-2">
+            <Input
+              value={newEventFormat}
+              onChange={(e) => setNewEventFormat(e.target.value)}
+              placeholder="Nouveau format"
+              className="flex-1"
+              data-testid="new-event-format"
+            />
+            <Button
+              variant="outline"
+              onClick={() => addToList('event_formats', newEventFormat.toLowerCase().replace(/\s+/g, '_'), setNewEventFormat)}
+              data-testid="add-event-format-btn"
             >
               <Plus className="h-4 w-4" />
             </Button>

@@ -134,7 +134,7 @@ export function SubscriptionsPage() {
     const subsMembers = subscriptions
       .filter(s => s.season === (settings?.current_season || ''))
       .map(s => s.member_id);
-    return members.filter(m => !subsMembers.includes(m.member_id));
+    return members.filter(m => !subsMembers.includes(m.member_id) && (m.member_type || 'adherent') === 'adherent');
   };
 
   return (

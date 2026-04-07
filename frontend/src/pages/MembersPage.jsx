@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
-import { formatDate, memberStatusLabels, cn } from '../lib/utils';
+import { formatDate, memberStatusLabels, memberTypeLabels, cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -28,7 +28,7 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { 
-  Plus, Search, AlertTriangle, Filter, Download, Eye, Edit, Archive
+  Plus, Search, AlertTriangle, Filter, Edit, Archive
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -38,6 +38,7 @@ export function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingMember, setEditingMember] = useState(null);
   const [formData, setFormData] = useState({
@@ -46,6 +47,7 @@ export function MembersPage() {
     pseudo: '',
     email: '',
     phone: '',
+    member_type: 'adherent',
     status: 'nouveau',
     notes: '',
   });
@@ -73,8 +75,9 @@ export function MembersPage() {
         .includes(searchQuery.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' || member.status === statusFilter;
+    const matchesType = typeFilter === 'all' || member.member_type === typeFilter;
     
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesStatus && matchesType;
   });
 
   const handleSubmit = async (e) => {
@@ -103,6 +106,7 @@ export function MembersPage() {
       pseudo: member.pseudo || '',
       email: member.email || '',
       phone: member.phone || '',
+      member_type: member.member_type || 'adherent',
       status: member.status,
       notes: member.notes || '',
     });
@@ -129,6 +133,7 @@ export function MembersPage() {
       pseudo: '',
       email: '',
       phone: '',
+      member_type: 'adherent',
       status: 'nouveau',
       notes: '',
     });
@@ -159,6 +164,18 @@ export function MembersPage() {
     );
   };
 
+  const getTypeBadge = (type) => {
+    const t = type || 'adherent';
+    return (
+      <span className={cn(
+        "px-2 py-0.5 text-xs font-medium",
+        t === 'adherent' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+      )}>
+        {memberTypeLabels[t] || t}
+      </span>
+    );
+  };
+
   return (
     <div className="space-y-6" data-testid="members-page">
       <div className="page-header">
@@ -183,6 +200,18 @@ export function MembersPage() {
             data-testid="member-search"
           />
         </div>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-full sm:w-48" data-testid="type-filter">
+            <Filter className="h-4 w-4 mr-2" />
+            <SelectValue placeholder="Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les types</SelectItem>
+            {Object.entries(memberTypeLabels).map(([key, label]) => (
+              <SelectItem key={key} value={key}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-full sm:w-48" data-testid="status-filter">
             <Filter className="h-4 w-4 mr-2" />
@@ -198,8 +227,10 @@ export function MembersPage() {
       </div>
 
       {/* Stats */}
-      <div className="flex gap-4 text-sm">
+      <div className="flex gap-4 text-sm flex-wrap">
         <span>{filteredMembers.length} membre(s)</span>
+        <span className="text-primary">{filteredMembers.filter(m => (m.member_type || 'adherent') === 'adherent').length} adhérents</span>
+        <span className="text-muted-foreground">{filteredMembers.filter(m => m.member_type === 'non_adherent').length} non adhérents</span>
         <span className="text-success">{filteredMembers.filter(m => m.status === 'actif').length} actifs</span>
         <span className="text-warning">{filteredMembers.filter(m => m.trial_alert).length} alertes</span>
       </div>
@@ -216,7 +247,7 @@ export function MembersPage() {
               <TableRow>
                 <TableHead>Nom</TableHead>
                 <TableHead>Pseudo</TableHead>
-                <TableHead>Email</TableHead>
+                <TableHead>Type</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead>Participations</TableHead>
                 <TableHead>Inscription</TableHead>
@@ -237,7 +268,7 @@ export function MembersPage() {
                       {member.first_name} {member.last_name}
                     </TableCell>
                     <TableCell>{member.pseudo || '-'}</TableCell>
-                    <TableCell>{member.email || '-'}</TableCell>
+                    <TableCell>{getTypeBadge(member.member_type)}</TableCell>
                     <TableCell>{getStatusBadge(member.status, member.trial_alert)}</TableCell>
                     <TableCell>{member.participation_count || 0}</TableCell>
                     <TableCell>{formatDate(member.membership_date) || formatDate(member.first_participation_date) || '-'}</TableCell>
@@ -313,40 +344,60 @@ export function MembersPage() {
                 data-testid="member-pseudo"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                data-testid="member-email"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  data-testid="member-email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="phone">Téléphone</Label>
+                <Input
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  data-testid="member-phone"
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="phone">Téléphone</Label>
-              <Input
-                id="phone"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                data-testid="member-phone"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="status">Statut</Label>
-              <Select 
-                value={formData.status} 
-                onValueChange={(value) => setFormData({ ...formData, status: value })}
-              >
-                <SelectTrigger data-testid="member-status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(memberStatusLabels).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="member_type">Type *</Label>
+                <Select 
+                  value={formData.member_type} 
+                  onValueChange={(value) => setFormData({ ...formData, member_type: value })}
+                >
+                  <SelectTrigger data-testid="member-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(memberTypeLabels).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="status">Statut</Label>
+                <Select 
+                  value={formData.status} 
+                  onValueChange={(value) => setFormData({ ...formData, status: value })}
+                >
+                  <SelectTrigger data-testid="member-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(memberStatusLabels).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>

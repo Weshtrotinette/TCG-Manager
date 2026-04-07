@@ -65,6 +65,44 @@ export const memberStatusLabels = {
   archive: 'Archivé',
 };
 
+// Member type labels
+export const memberTypeLabels = {
+  adherent: 'Adhérent',
+  non_adherent: 'Non adhérent',
+};
+
+// Event type labels
+export const eventTypeLabels = {
+  tournoi: 'Tournoi',
+  ligue: 'Ligue',
+  session_libre: 'Session libre',
+  demonstration: 'Démonstration',
+  atelier: 'Atelier',
+};
+
+// Event format labels
+export const eventFormatLabels = {
+  suisse: 'Suisse',
+  elimination_simple: 'Élimination simple',
+  double_elimination: 'Double élimination',
+  round_robin: 'Round Robin',
+  poules_top_cut: 'Poules + Top Cut',
+};
+
+// Tournament status labels
+export const tournamentStatusLabels = {
+  inscription: 'Inscription',
+  en_cours: 'En cours',
+  termine: 'Terminé',
+};
+
+// Match status labels
+export const matchStatusLabels = {
+  en_attente: 'En attente',
+  en_cours: 'En cours',
+  termine: 'Terminé',
+};
+
 // Payment method labels in French
 export const paymentMethodLabels = {
   especes: 'Espèces',
