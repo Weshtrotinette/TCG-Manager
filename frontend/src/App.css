@@ -1,34 +1,174 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* App-specific styles - Swiss Design System */
+
+/* Layout containers */
+.app-container {
+  @apply min-h-screen bg-background;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+.main-content {
+  @apply flex-1 overflow-auto;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+/* Sidebar styling */
+.sidebar {
+  @apply w-64 bg-card border-r border-border flex flex-col;
 }
 
-.App-link {
-    color: #61dafb;
+.sidebar-nav-item {
+  @apply flex items-center gap-3 px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors duration-200;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+.sidebar-nav-item.active {
+  @apply text-primary bg-primary/10 border-l-2 border-primary;
+}
+
+/* Page headers */
+.page-header {
+  @apply flex items-center justify-between mb-6;
+}
+
+.page-title {
+  @apply text-2xl sm:text-3xl font-bold tracking-tight;
+}
+
+/* KPI Cards */
+.kpi-card {
+  @apply bg-card border border-border p-4 md:p-6;
+}
+
+.kpi-value {
+  @apply text-3xl sm:text-4xl font-black tracking-tighter;
+}
+
+.kpi-label {
+  @apply text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground mt-1;
+}
+
+/* Alert badges */
+.alert-badge {
+  @apply inline-flex items-center gap-1 px-2 py-0.5 text-xs font-bold uppercase tracking-wide;
+}
+
+.alert-badge-warning {
+  @apply bg-warning text-warning-foreground;
+}
+
+.alert-badge-danger {
+  @apply bg-destructive text-destructive-foreground;
+}
+
+.alert-badge-success {
+  @apply bg-success text-success-foreground;
+}
+
+/* Status badges */
+.status-badge {
+  @apply inline-flex items-center px-2 py-0.5 text-xs font-bold uppercase tracking-wide;
+}
+
+.status-actif {
+  @apply bg-success/20 text-success;
+}
+
+.status-essai {
+  @apply bg-warning/20 text-warning;
+}
+
+.status-nouveau {
+  @apply bg-primary/20 text-primary;
+}
+
+.status-non_a_jour {
+  @apply bg-destructive/20 text-destructive;
+}
+
+.status-archive {
+  @apply bg-muted text-muted-foreground;
+}
+
+/* Form styling */
+.form-group {
+  @apply space-y-2;
+}
+
+.form-label {
+  @apply text-sm font-medium;
+}
+
+/* Table enhancements */
+.table-actions {
+  @apply flex items-center gap-2;
+}
+
+/* Modal/Dialog styling */
+.modal-header {
+  @apply text-xl font-bold mb-4;
+}
+
+.modal-footer {
+  @apply flex justify-end gap-3 mt-6;
+}
+
+/* Quick action buttons */
+.quick-action-btn {
+  @apply flex items-center gap-2 px-4 py-2 text-sm font-medium border border-border bg-card hover:bg-muted transition-colors duration-200;
+}
+
+/* Login page */
+.login-container {
+  @apply min-h-screen flex;
+}
+
+.login-form-side {
+  @apply w-full lg:w-1/2 flex items-center justify-center p-8;
+}
+
+.login-image-side {
+  @apply hidden lg:block lg:w-1/2 bg-cover bg-center;
+}
+
+/* Charts container */
+.chart-container {
+  @apply bg-card border border-border p-4 md:p-6;
+}
+
+.chart-title {
+  @apply text-lg font-bold mb-4;
+}
+
+/* Empty states */
+.empty-state {
+  @apply flex flex-col items-center justify-center py-12 text-center;
+}
+
+.empty-state-icon {
+  @apply text-muted-foreground mb-4;
+}
+
+.empty-state-title {
+  @apply text-lg font-bold mb-2;
+}
+
+.empty-state-description {
+  @apply text-sm text-muted-foreground;
+}
+
+/* Loading states */
+.loading-spinner {
+  @apply animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full;
+}
+
+/* Responsive sidebar */
+@media (max-width: 1024px) {
+  .sidebar {
+    @apply fixed inset-y-0 left-0 z-50 transform -translate-x-full transition-transform duration-200;
+  }
+  
+  .sidebar.open {
+    @apply translate-x-0;
+  }
+  
+  .sidebar-overlay {
+    @apply fixed inset-0 bg-black/50 z-40;
+  }
 }
