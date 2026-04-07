@@ -1384,6 +1384,16 @@ async def start_new_season(user: User = Depends(get_current_user)):
         "new_season": new_season,
     }
 
+@api_router.post("/members/refresh-statuses")
+async def refresh_all_adherent_statuses(user: User = Depends(get_current_user)):
+    """Recalculate statuses for all adherent members"""
+    members = await db.members.find({"member_type": "adherent", "status": {"$ne": "archive"}}, {"_id": 0, "member_id": 1}).to_list(10000)
+    count = 0
+    for m in members:
+        await refresh_adherent_status(m["member_id"])
+        count += 1
+    return {"message": f"{count} statuts recalculés"}
+
 @api_router.get("/subscriptions/archives")
 async def list_subscription_archives(user: User = Depends(get_current_user)):
     """List all archived seasons"""
@@ -1865,18 +1875,19 @@ async def get_dashboard(user: User = Depends(get_current_user)):
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
     
-    # Member stats
+    # Member stats (adherents only for status-based stats)
     total_members = await db.members.count_documents({"status": {"$ne": "archive"}})
-    active_members = await db.members.count_documents({"status": "actif"})
-    trial_members = await db.members.count_documents({"status": {"$in": ["nouveau", "essai"]}})
-    non_paid_members = await db.members.count_documents({"status": "non_a_jour"})
+    active_members = await db.members.count_documents({"member_type": "adherent", "status": "actif"})
+    trial_members = await db.members.count_documents({"member_type": "adherent", "status": {"$in": ["nouveau", "essai"]}})
+    non_paid_members = await db.members.count_documents({"member_type": "adherent", "status": "non_a_jour"})
     
     # Get settings for trial alerts
     settings = await db.settings.find_one({"settings_id": "main_settings"}, {"_id": 0})
     max_free = settings.get("max_free_participations", 3) if settings else 3
     
-    # Members needing attention (trial limit reached)
+    # Members needing attention (trial limit reached - adherents only)
     trial_alert_count = await db.members.count_documents({
+        "member_type": "adherent",
         "status": {"$in": ["nouveau", "essai"]},
         "participation_count": {"$gte": max_free}
     })
