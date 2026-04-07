@@ -1049,6 +1049,50 @@ async def list_permissions(user: User = Depends(get_current_user)):
 # MEMBER ROUTES
 # =============================================================================
 
+async def refresh_adherent_status(member_id: str):
+    """Recalculate and update status for an adherent member based on participations and subscriptions.
+    Non-adhérents are not affected."""
+    member = await db.members.find_one({"member_id": member_id}, {"_id": 0})
+    if not member:
+        return
+    
+    # Only auto-manage status for adhérents
+    if member.get("member_type") != "adherent":
+        return
+    
+    # Don't touch archived members
+    if member.get("status") == "archive":
+        return
+    
+    settings = await db.settings.find_one({"settings_id": "main_settings"}, {"_id": 0})
+    max_free = settings.get("max_free_participations", 3) if settings else 3
+    current_season = settings.get("current_season", "") if settings else ""
+    
+    count = member.get("participation_count", 0)
+    
+    # Check if subscription is paid for current season
+    has_paid_sub = False
+    if current_season:
+        sub = await db.subscriptions.find_one({
+            "member_id": member_id,
+            "season": current_season,
+            "status": "payee"
+        }, {"_id": 0})
+        has_paid_sub = sub is not None
+    
+    # Determine status
+    if has_paid_sub:
+        new_status = "actif"
+    elif count == 0:
+        new_status = "nouveau"
+    elif count <= max_free:
+        new_status = "essai"
+    else:
+        new_status = "non_a_jour"
+    
+    if member.get("status") != new_status:
+        await db.members.update_one({"member_id": member_id}, {"$set": {"status": new_status}})
+
 @api_router.get("/members")
 async def list_members(
     status: Optional[str] = None,
@@ -1073,10 +1117,10 @@ async def list_members(
     settings = await db.settings.find_one({"settings_id": "main_settings"}, {"_id": 0})
     max_free = settings.get("max_free_participations", 3) if settings else 3
     
-    # Add alerts
+    # Add alerts (only for adhérents)
     for member in members:
         member["trial_alert"] = None
-        if member["status"] in ["nouveau", "essai"]:
+        if member.get("member_type", "adherent") == "adherent" and member["status"] in ["nouveau", "essai"]:
             count = member.get("participation_count", 0)
             if count >= max_free:
                 member["trial_alert"] = "exceeded"
@@ -1231,8 +1275,11 @@ async def add_payment(subscription_id: str, payment_data: PaymentCreate, user: U
     if new_status == "payee":
         await db.members.update_one(
             {"member_id": sub["member_id"]},
-            {"$set": {"status": "actif", "membership_date": datetime.now(timezone.utc).isoformat()}}
+            {"$set": {"membership_date": datetime.now(timezone.utc).isoformat()}}
         )
+    
+    # Auto-update adherent status
+    await refresh_adherent_status(sub["member_id"])
     
     await log_action(user.user_id, "create", "payments", subscription_id, 
                      f"Paiement de {payment.amount}€ enregistré")
@@ -1381,13 +1428,8 @@ async def add_participation(part_data: ParticipationCreate, user: User = Depends
     
     await db.members.update_one({"member_id": part_data.member_id}, update_fields)
     
-    # Update member status based on participation count
-    new_count = member.get("participation_count", 0) + 1
-    settings = await db.settings.find_one({"settings_id": "main_settings"}, {"_id": 0})
-    max_free = settings.get("max_free_participations", 3) if settings else 3
-    
-    if member["status"] == "nouveau" and new_count > 0:
-        await db.members.update_one({"member_id": part_data.member_id}, {"$set": {"status": "essai"}})
+    # Auto-update adherent status
+    await refresh_adherent_status(part_data.member_id)
     
     return {"participation_id": participation.participation_id, "message": "Participation enregistrée"}
 
@@ -1430,6 +1472,9 @@ async def remove_participation(participation_id: str, user: User = Depends(get_c
         {"member_id": part["member_id"]},
         {"$inc": {"participation_count": -1}}
     )
+    
+    # Auto-update adherent status
+    await refresh_adherent_status(part["member_id"])
     
     return {"message": "Participation supprimée"}
 

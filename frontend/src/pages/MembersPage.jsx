@@ -269,7 +269,12 @@ export function MembersPage() {
                     </TableCell>
                     <TableCell>{member.pseudo || '-'}</TableCell>
                     <TableCell>{getTypeBadge(member.member_type)}</TableCell>
-                    <TableCell>{getStatusBadge(member.status, member.trial_alert)}</TableCell>
+                    <TableCell>
+                      {(member.member_type || 'adherent') === 'adherent'
+                        ? getStatusBadge(member.status, member.trial_alert)
+                        : <span className="text-xs text-muted-foreground">-</span>
+                      }
+                    </TableCell>
                     <TableCell>{member.participation_count || 0}</TableCell>
                     <TableCell>{formatDate(member.membership_date) || formatDate(member.first_participation_date) || '-'}</TableCell>
                     <TableCell className="text-right">
@@ -382,22 +387,12 @@ export function MembersPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="status">Statut</Label>
-                <Select 
-                  value={formData.status} 
-                  onValueChange={(value) => setFormData({ ...formData, status: value })}
-                >
-                  <SelectTrigger data-testid="member-status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(memberStatusLabels).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {formData.member_type === 'adherent' && (
+                <div className="space-y-2">
+                  <Label htmlFor="status">Statut</Label>
+                  <p className="text-xs text-muted-foreground mt-1">Géré automatiquement</p>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>
