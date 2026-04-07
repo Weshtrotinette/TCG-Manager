@@ -58,6 +58,10 @@ class ApiClient {
     return this.request(`/members/${memberId}`, { method: 'DELETE' });
   }
 
+  unarchiveMember(memberId) {
+    return this.request(`/members/${memberId}/unarchive`, { method: 'PUT' });
+  }
+
   // Subscriptions
   getSubscriptions(params = {}) {
     const query = new URLSearchParams(params).toString();

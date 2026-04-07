@@ -1194,6 +1194,25 @@ async def archive_member(member_id: str, user: User = Depends(get_current_user))
     await log_action(user.user_id, "archive", "members", member_id, "Membre archivé")
     return {"message": "Membre archivé"}
 
+@api_router.put("/members/{member_id}/unarchive")
+async def unarchive_member(member_id: str, user: User = Depends(get_current_user)):
+    """Unarchive a member and recalculate status"""
+    member = await db.members.find_one({"member_id": member_id}, {"_id": 0})
+    if not member:
+        raise HTTPException(status_code=404, detail="Membre non trouvé")
+    if member.get("status") != "archive":
+        raise HTTPException(status_code=400, detail="Ce membre n'est pas archivé")
+    
+    # Set to nouveau temporarily, then let refresh_adherent_status calculate the right one
+    await db.members.update_one(
+        {"member_id": member_id},
+        {"$set": {"status": "nouveau", "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    await refresh_adherent_status(member_id)
+    
+    await log_action(user.user_id, "unarchive", "members", member_id, "Membre désarchivé")
+    return {"message": "Membre désarchivé"}
+
 
 # =============================================================================
 # SUBSCRIPTION ROUTES

@@ -28,7 +28,7 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { 
-  Plus, Search, AlertTriangle, Filter, Edit, Archive
+  Plus, Search, AlertTriangle, Filter, Edit, Archive, ArchiveRestore
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -122,6 +122,16 @@ export function MembersPage() {
       } catch (err) {
         toast.error(err.message);
       }
+    }
+  };
+
+  const handleUnarchive = async (member) => {
+    try {
+      await api.unarchiveMember(member.member_id);
+      toast.success('Membre désarchivé');
+      loadMembers();
+    } catch (err) {
+      toast.error(err.message);
     }
   };
 
@@ -297,6 +307,17 @@ export function MembersPage() {
                             data-testid={`archive-member-${member.member_id}`}
                           >
                             <Archive className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {hasPermission('members:delete') && member.status === 'archive' && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-success"
+                            onClick={() => handleUnarchive(member)}
+                            data-testid={`unarchive-member-${member.member_id}`}
+                          >
+                            <ArchiveRestore className="h-4 w-4" />
                           </Button>
                         )}
                       </div>
