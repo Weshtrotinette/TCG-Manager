@@ -221,6 +221,23 @@ class ApiClient {
     const query = new URLSearchParams(params).toString();
     return this.request(`/audit-logs${query ? `?${query}` : ''}`);
   }
+
+  // Whitelist
+  getWhitelist() {
+    return this.request('/whitelist');
+  }
+
+  addToWhitelist(data) {
+    return this.request('/whitelist', { method: 'POST', body: data });
+  }
+
+  addBulkToWhitelist(emails) {
+    return this.request('/whitelist/bulk', { method: 'POST', body: emails });
+  }
+
+  removeFromWhitelist(email) {
+    return this.request(`/whitelist/${encodeURIComponent(email)}`, { method: 'DELETE' });
+  }
 }
 
 export const api = new ApiClient();

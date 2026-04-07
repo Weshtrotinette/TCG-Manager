@@ -19,6 +19,7 @@ import {
   X,
   UserCog,
   Shield,
+  ShieldCheck,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 
@@ -35,6 +36,7 @@ const navigation = [
 
 const adminNavigation = [
   { name: 'Utilisateurs', href: '/users', icon: UserCog, role: 'president' },
+  { name: 'Emails autorisés', href: '/whitelist', icon: ShieldCheck, role: 'president' },
   { name: 'Rôles', href: '/roles', icon: Shield, role: 'president' },
   { name: 'Paramètres', href: '/settings', icon: Settings, permission: 'settings:read' },
 ];

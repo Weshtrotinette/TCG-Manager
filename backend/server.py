@@ -360,6 +360,18 @@ class AuditLog(BaseModel):
     details: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+# --- Whitelist Model ---
+class WhitelistEntry(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    email: str
+    added_by: Optional[str] = None
+    added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    note: Optional[str] = None
+
+class WhitelistCreate(BaseModel):
+    email: str
+    note: Optional[str] = None
+
 
 # =============================================================================
 # AUTHENTICATION HELPERS
@@ -475,8 +487,16 @@ async def exchange_session(request: Request, response: Response):
     picture = emergent_data.get("picture")
     emergent_session_token = emergent_data.get("session_token")
     
-    # Check if user exists
+    # Check if email is whitelisted
+    whitelist_entry = await db.whitelist.find_one({"email": email.lower()}, {"_id": 0})
     existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+    
+    # If not whitelisted and not an existing user, deny access
+    if not whitelist_entry and not existing_user:
+        raise HTTPException(
+            status_code=403, 
+            detail="Accès refusé. Votre email n'est pas autorisé. Contactez un administrateur."
+        )
     
     if existing_user:
         user_id = existing_user["user_id"]
@@ -1633,6 +1653,95 @@ async def get_audit_logs(
     
     logs = await db.audit_logs.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
     return logs
+
+
+# =============================================================================
+# WHITELIST ROUTES
+# =============================================================================
+
+@api_router.get("/whitelist")
+async def get_whitelist(user: User = Depends(get_current_user)):
+    """Get all whitelisted emails"""
+    if "president" not in user.roles:
+        raise HTTPException(status_code=403, detail="Permission refusée")
+    
+    entries = await db.whitelist.find({}, {"_id": 0}).sort("added_at", -1).to_list(1000)
+    return entries
+
+@api_router.post("/whitelist")
+async def add_to_whitelist(entry: WhitelistCreate, user: User = Depends(get_current_user)):
+    """Add email to whitelist"""
+    if "president" not in user.roles:
+        raise HTTPException(status_code=403, detail="Permission refusée")
+    
+    email = entry.email.lower().strip()
+    
+    # Check if already exists
+    existing = await db.whitelist.find_one({"email": email}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email déjà dans la liste")
+    
+    whitelist_entry = WhitelistEntry(
+        email=email,
+        added_by=user.user_id,
+        note=entry.note
+    )
+    doc = whitelist_entry.model_dump()
+    doc['added_at'] = doc['added_at'].isoformat()
+    
+    await db.whitelist.insert_one(doc)
+    await log_action(user.user_id, "create", "whitelist", email, f"Email ajouté à la whitelist: {email}")
+    
+    return {"message": "Email ajouté à la liste", "email": email}
+
+@api_router.post("/whitelist/bulk")
+async def add_bulk_to_whitelist(emails: List[str], user: User = Depends(get_current_user)):
+    """Add multiple emails to whitelist"""
+    if "president" not in user.roles:
+        raise HTTPException(status_code=403, detail="Permission refusée")
+    
+    added = []
+    skipped = []
+    
+    for email in emails:
+        email = email.lower().strip()
+        if not email:
+            continue
+            
+        existing = await db.whitelist.find_one({"email": email}, {"_id": 0})
+        if existing:
+            skipped.append(email)
+            continue
+        
+        whitelist_entry = WhitelistEntry(
+            email=email,
+            added_by=user.user_id
+        )
+        doc = whitelist_entry.model_dump()
+        doc['added_at'] = doc['added_at'].isoformat()
+        await db.whitelist.insert_one(doc)
+        added.append(email)
+    
+    if added:
+        await log_action(user.user_id, "create", "whitelist", None, f"Ajout en masse: {len(added)} emails")
+    
+    return {"added": added, "skipped": skipped, "message": f"{len(added)} email(s) ajouté(s)"}
+
+@api_router.delete("/whitelist/{email}")
+async def remove_from_whitelist(email: str, user: User = Depends(get_current_user)):
+    """Remove email from whitelist"""
+    if "president" not in user.roles:
+        raise HTTPException(status_code=403, detail="Permission refusée")
+    
+    email = email.lower().strip()
+    result = await db.whitelist.delete_one({"email": email})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Email non trouvé")
+    
+    await log_action(user.user_id, "delete", "whitelist", email, f"Email retiré de la whitelist: {email}")
+    
+    return {"message": "Email retiré de la liste"}
 
 
 # =============================================================================

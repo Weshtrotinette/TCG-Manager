@@ -23,6 +23,8 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { UsersPage } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 
+import { WhitelistPage } from "./pages/WhitelistPage";
+
 // Router component that handles auth callback detection
 function AppRouter() {
   const location = useLocation();
@@ -57,6 +59,7 @@ function AppRouter() {
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/users" element={<UsersPage />} />
+        <Route path="/whitelist" element={<WhitelistPage />} />
         <Route path="/roles" element={<RolesPage />} />
       </Route>
 
