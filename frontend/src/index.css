@@ -180,8 +180,62 @@
 /* POS specific styles */
 .pos-product-btn {
   @apply min-h-[80px] flex flex-col items-center justify-center gap-1 p-3 border border-border bg-card hover:bg-muted transition-colors duration-200;
+  /* Better touch targets */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .pos-product-btn:active {
   @apply bg-primary text-primary-foreground;
+}
+
+/* Touch-friendly improvements */
+@media (pointer: coarse) {
+  /* Larger touch targets on touch devices */
+  button, [role="button"], a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Better spacing for touch */
+  .swiss-card {
+    @apply p-4;
+  }
+  
+  /* Larger table rows */
+  table tbody tr td {
+    @apply py-4;
+  }
+  
+  /* Remove hover states on touch devices */
+  .hover\:bg-muted:hover {
+    background-color: inherit;
+  }
+  
+  .hover\:bg-muted:active {
+    @apply bg-muted;
+  }
+}
+
+/* Tablet landscape optimizations */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .page-title {
+    @apply text-xl;
+  }
+  
+  .kpi-value {
+    @apply text-2xl;
+  }
+  
+  /* Optimize grid layouts for tablet */
+  .grid-cols-4 {
+    @apply grid-cols-2;
+  }
+}
+
+/* Tablet-specific POS layout */
+@media (min-width: 768px) and (max-width: 1279px) and (orientation: landscape) {
+  .pos-product-btn {
+    @apply min-h-[70px];
+  }
 }

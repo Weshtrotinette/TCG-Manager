@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
-import { formatCurrency, paymentMethodLabels, cn } from '../lib/utils';
+import { formatCurrency, cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { 
@@ -130,16 +130,18 @@ export function POSPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-6rem)] flex flex-col lg:flex-row gap-4" data-testid="pos-page">
+    <div className="h-[calc(100vh-4rem)] md:h-[calc(100vh-5rem)] flex flex-col md:flex-row gap-3" data-testid="pos-page">
       {/* Products Grid */}
-      <div className="flex-1 overflow-auto">
-        <div className="page-header mb-4">
-          <h1 className="page-title flex items-center gap-2">
-            <ShoppingCart className="h-6 w-6" />
-            Caisse rapide
+      <div className="flex-1 overflow-auto min-h-0">
+        {/* Header - more compact on tablet */}
+        <div className="flex items-center justify-between mb-3 sticky top-0 bg-background z-10 pb-2">
+          <h1 className="text-lg md:text-xl font-bold flex items-center gap-2">
+            <ShoppingCart className="h-5 w-5" />
+            <span className="hidden sm:inline">Caisse rapide</span>
+            <span className="sm:hidden">Caisse</span>
           </h1>
           <Select value={selectedEvent} onValueChange={setSelectedEvent}>
-            <SelectTrigger className="w-48" data-testid="event-select">
+            <SelectTrigger className="w-36 md:w-48 h-10" data-testid="event-select">
               <SelectValue placeholder="Événement" />
             </SelectTrigger>
             <SelectContent>
@@ -153,12 +155,14 @@ export function POSPage() {
           </Select>
         </div>
 
+        {/* Products by category */}
         {Object.entries(groupedProducts).map(([category, categoryProducts]) => (
-          <div key={category} className="mb-6">
-            <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground mb-3">
+          <div key={category} className="mb-4">
+            <h2 className="text-xs font-bold uppercase tracking-[0.15em] text-muted-foreground mb-2">
               {category}
             </h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+            {/* Responsive grid: 3 cols on small tablet, 4 on larger */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-2">
               {categoryProducts.map(product => {
                 const inCart = cart.find(item => item.product_id === product.product_id);
                 const isLowStock = product.track_stock && product.stock_quantity <= 0;
@@ -169,28 +173,28 @@ export function POSPage() {
                     onClick={() => !isLowStock && addToCart(product)}
                     disabled={isLowStock}
                     className={cn(
-                      "pos-product-btn relative",
-                      inCart && "ring-2 ring-primary",
+                      "pos-product-btn relative min-h-[72px] md:min-h-[80px]",
+                      inCart && "ring-2 ring-primary bg-primary/5",
                       isLowStock && "opacity-50 cursor-not-allowed"
                     )}
                     data-testid={`pos-product-${product.product_id}`}
                   >
-                    <span className="font-medium text-sm text-center line-clamp-2">
+                    <span className="font-medium text-sm text-center line-clamp-2 leading-tight">
                       {product.name}
                     </span>
-                    <span className="text-lg font-bold">{formatCurrency(product.price)}</span>
+                    <span className="text-base md:text-lg font-bold">{formatCurrency(product.price)}</span>
                     {product.track_stock && (
                       <span className={cn(
-                        "text-xs",
+                        "text-[10px]",
                         product.stock_quantity <= (product.low_stock_threshold || 5) 
-                          ? "text-destructive" 
+                          ? "text-destructive font-bold" 
                           : "text-muted-foreground"
                       )}>
                         Stock: {product.stock_quantity}
                       </span>
                     )}
                     {inCart && (
-                      <span className="absolute top-1 right-1 bg-primary text-primary-foreground text-xs px-1.5 py-0.5 font-bold">
+                      <span className="absolute top-1 right-1 bg-primary text-primary-foreground text-xs w-6 h-6 flex items-center justify-center font-bold">
                         {inCart.quantity}
                       </span>
                     )}
@@ -202,45 +206,52 @@ export function POSPage() {
         ))}
 
         {products.length === 0 && (
-          <div className="empty-state">
-            <ShoppingCart className="h-12 w-12 empty-state-icon" />
-            <p className="empty-state-title">Aucun produit</p>
-            <p className="empty-state-description">
-              Ajoutez des produits pour commencer à vendre
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <ShoppingCart className="h-12 w-12 text-muted-foreground mb-4" />
+            <p className="text-lg font-bold mb-2">Aucun produit</p>
+            <p className="text-sm text-muted-foreground">
+              Ajoutez des produits pour commencer
             </p>
           </div>
         )}
       </div>
 
-      {/* Cart */}
-      <div className="lg:w-80 flex flex-col swiss-card p-4">
-        <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-          <ShoppingCart className="h-5 w-5" />
-          Panier
+      {/* Cart - Fixed on right side on tablet landscape */}
+      <div className="md:w-72 lg:w-80 flex flex-col bg-card border border-border p-3 max-h-[40vh] md:max-h-full">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-bold flex items-center gap-2">
+            <ShoppingCart className="h-4 w-4" />
+            Panier
+            {cart.length > 0 && (
+              <span className="bg-primary text-primary-foreground text-xs px-1.5 py-0.5 font-bold">
+                {cart.reduce((sum, item) => sum + item.quantity, 0)}
+              </span>
+            )}
+          </h2>
           {cart.length > 0 && (
             <Button
               variant="ghost"
               size="sm"
               onClick={clearCart}
-              className="ml-auto text-destructive"
+              className="text-destructive h-8 px-2"
               data-testid="clear-cart-btn"
             >
               <X className="h-4 w-4" />
             </Button>
           )}
-        </h2>
+        </div>
 
-        {/* Cart Items */}
-        <div className="flex-1 overflow-auto space-y-2 min-h-[200px]">
+        {/* Cart Items - Scrollable */}
+        <div className="flex-1 overflow-auto space-y-1.5 min-h-[80px]">
           {cart.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">
+            <p className="text-sm text-muted-foreground text-center py-4">
               Panier vide
             </p>
           ) : (
             cart.map(item => (
               <div 
                 key={item.product_id} 
-                className="flex items-center gap-2 p-2 border border-border"
+                className="flex items-center gap-2 p-2 bg-muted/50 border border-border"
                 data-testid={`cart-item-${item.product_id}`}
               >
                 <div className="flex-1 min-w-0">
@@ -249,7 +260,7 @@ export function POSPage() {
                     {formatCurrency(item.price)} × {item.quantity}
                   </p>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-0.5">
                   <Button
                     variant="ghost"
                     size="icon"
@@ -259,7 +270,7 @@ export function POSPage() {
                   >
                     <Minus className="h-3 w-3" />
                   </Button>
-                  <span className="w-6 text-center font-bold">{item.quantity}</span>
+                  <span className="w-5 text-center font-bold text-sm">{item.quantity}</span>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -279,7 +290,7 @@ export function POSPage() {
                     <Trash2 className="h-3 w-3" />
                   </Button>
                 </div>
-                <span className="font-bold w-16 text-right">
+                <span className="font-bold text-sm w-14 text-right">
                   {formatCurrency(item.price * item.quantity)}
                 </span>
               </div>
@@ -287,49 +298,46 @@ export function POSPage() {
           )}
         </div>
 
-        {/* Total and Payment */}
-        <div className="border-t border-border pt-4 mt-4 space-y-4">
+        {/* Total and Payment - Always visible */}
+        <div className="border-t border-border pt-3 mt-3 space-y-3">
           <div className="flex justify-between items-center">
-            <span className="text-lg font-bold">Total</span>
-            <span className="text-2xl font-black" data-testid="cart-total">
+            <span className="font-bold">Total</span>
+            <span className="text-xl md:text-2xl font-black" data-testid="cart-total">
               {formatCurrency(cartTotal)}
             </span>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground">
-              Mode de paiement
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                variant={paymentMethod === 'especes' ? 'default' : 'outline'}
-                onClick={() => setPaymentMethod('especes')}
-                className="h-12"
-                data-testid="payment-cash"
-              >
-                <Banknote className="h-5 w-5 mr-2" />
-                Espèces
-              </Button>
-              <Button
-                variant={paymentMethod === 'carte' ? 'default' : 'outline'}
-                onClick={() => setPaymentMethod('carte')}
-                className="h-12"
-                data-testid="payment-card"
-              >
-                <CreditCard className="h-5 w-5 mr-2" />
-                Carte
-              </Button>
-            </div>
+          {/* Payment method - Larger touch targets */}
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant={paymentMethod === 'especes' ? 'default' : 'outline'}
+              onClick={() => setPaymentMethod('especes')}
+              className="h-11 text-sm font-bold"
+              data-testid="payment-cash"
+            >
+              <Banknote className="h-4 w-4 mr-1.5" />
+              Espèces
+            </Button>
+            <Button
+              variant={paymentMethod === 'carte' ? 'default' : 'outline'}
+              onClick={() => setPaymentMethod('carte')}
+              className="h-11 text-sm font-bold"
+              data-testid="payment-card"
+            >
+              <CreditCard className="h-4 w-4 mr-1.5" />
+              Carte
+            </Button>
           </div>
 
+          {/* Checkout button - Large and prominent */}
           <Button
-            className="w-full h-14 text-lg font-bold"
+            className="w-full h-12 md:h-14 text-base md:text-lg font-bold"
             disabled={cart.length === 0 || processing}
             onClick={handleCheckout}
             data-testid="checkout-btn"
           >
             {processing ? (
-              <div className="loading-spinner mr-2" />
+              <div className="loading-spinner mr-2 h-5 w-5" />
             ) : (
               <Check className="h-5 w-5 mr-2" />
             )}
