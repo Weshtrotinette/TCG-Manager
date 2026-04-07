@@ -9,6 +9,15 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const formatApiError = (detail) => {
+    if (detail == null) return "Une erreur est survenue. Veuillez réessayer.";
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail))
+      return detail.map((e) => (e && typeof e.msg === "string" ? e.msg : JSON.stringify(e))).filter(Boolean).join(" ");
+    if (detail && typeof detail.msg === "string") return detail.msg;
+    return String(detail);
+  };
+
   const checkAuth = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/api/auth/me`, {
@@ -41,10 +50,58 @@ export function AuthProvider({ children }) {
     checkAuth().finally(() => setLoading(false));
   }, [checkAuth]);
 
-  const login = () => {
+  const loginWithGoogle = () => {
     // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
     const redirectUrl = window.location.origin + '/dashboard';
     window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+  };
+
+  const loginWithEmail = async (email, password) => {
+    try {
+      setError(null);
+      const response = await fetch(`${API_URL}/api/auth/login/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(formatApiError(data.detail));
+      }
+
+      setUser(data);
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const register = async (email, password, name) => {
+    try {
+      setError(null);
+      const response = await fetch(`${API_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password, name }),
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(formatApiError(data.detail));
+      }
+
+      setUser(data);
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
   };
 
   const logout = async () => {
@@ -72,13 +129,14 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({ session_id: sessionId }),
       });
 
+      const data = await response.json();
+      
       if (!response.ok) {
-        throw new Error('Session exchange failed');
+        throw new Error(formatApiError(data.detail));
       }
 
-      const userData = await response.json();
-      setUser(userData);
-      return userData;
+      setUser(data);
+      return data;
     } catch (err) {
       setError(err.message);
       throw err;
@@ -100,7 +158,9 @@ export function AuthProvider({ children }) {
     user,
     loading,
     error,
-    login,
+    loginWithGoogle,
+    loginWithEmail,
+    register,
     logout,
     exchangeSession,
     checkAuth,

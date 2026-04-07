@@ -6,14 +6,20 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
 import httpx
+import bcrypt
+import jwt
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
+
+# JWT Configuration
+JWT_SECRET = os.environ.get('JWT_SECRET', 'default_secret_change_me')
+JWT_ALGORITHM = "HS256"
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -372,26 +378,84 @@ class WhitelistCreate(BaseModel):
     email: str
     note: Optional[str] = None
 
+# --- Email/Password Auth Models ---
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+# =============================================================================
+# PASSWORD & JWT HELPERS
+# =============================================================================
+
+def hash_password(password: str) -> str:
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+    return hashed.decode("utf-8")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+
+def create_access_token(user_id: str, email: str) -> str:
+    payload = {
+        "sub": user_id, 
+        "email": email, 
+        "exp": datetime.now(timezone.utc) + timedelta(days=7),  # 7 days for convenience
+        "type": "access"
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def create_refresh_token(user_id: str) -> str:
+    payload = {
+        "sub": user_id, 
+        "exp": datetime.now(timezone.utc) + timedelta(days=30), 
+        "type": "refresh"
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
 
 # =============================================================================
 # AUTHENTICATION HELPERS
 # =============================================================================
 
 async def get_current_user(request: Request) -> User:
-    """Get current user from session token (cookie or header)"""
-    # Try cookie first
+    """Get current user from session token or JWT (cookie or header)"""
+    # Try session token first (Google OAuth)
     session_token = request.cookies.get("session_token")
     
-    # Fallback to Authorization header
+    # Fallback to Authorization header for session token
     if not session_token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            session_token = auth_header.split(" ")[1]
+            token = auth_header.split(" ")[1]
+            # Check if it's a session token or JWT
+            if token.startswith("session_") or token.startswith("test_session"):
+                session_token = token
+            else:
+                # Try as JWT
+                return await get_user_from_jwt(token)
+    
+    # Try JWT access_token cookie
+    jwt_token = request.cookies.get("access_token")
+    if jwt_token:
+        return await get_user_from_jwt(jwt_token)
     
     if not session_token:
         raise HTTPException(status_code=401, detail="Non authentifié")
     
-    # Find session
+    # Validate session token
     session_doc = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
     if not session_doc:
         raise HTTPException(status_code=401, detail="Session invalide")
@@ -414,6 +478,27 @@ async def get_current_user(request: Request) -> User:
         raise HTTPException(status_code=401, detail="Compte désactivé")
     
     return User(**user_doc)
+
+async def get_user_from_jwt(token: str) -> User:
+    """Get user from JWT token"""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Type de token invalide")
+        
+        user_id = payload.get("sub")
+        user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+        if not user_doc:
+            raise HTTPException(status_code=401, detail="Utilisateur non trouvé")
+        
+        if not user_doc.get("is_active", True):
+            raise HTTPException(status_code=401, detail="Compte désactivé")
+        
+        return User(**user_doc)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expiré")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token invalide")
 
 async def get_user_permissions(user: User) -> List[str]:
     """Get all permissions for a user based on their roles"""
@@ -507,14 +592,14 @@ async def exchange_session(request: Request, response: Response):
         )
         user_doc = existing_user
     else:
-        # Create new user
+        # Create new user with lecture_seule role (lowest permissions)
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         user_doc = {
             "user_id": user_id,
             "email": email,
             "name": name,
             "picture": picture,
-            "roles": ["organisateur"],  # Default role
+            "roles": ["lecture_seule"],  # Default to read-only role
             "is_active": True,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
@@ -578,7 +663,213 @@ async def logout(request: Request, response: Response):
         await db.user_sessions.delete_one({"session_token": session_token})
     
     response.delete_cookie(key="session_token", path="/")
+    response.delete_cookie(key="access_token", path="/")
+    response.delete_cookie(key="refresh_token", path="/")
     return {"message": "Déconnexion réussie"}
+
+
+# =============================================================================
+# EMAIL/PASSWORD AUTH ROUTES
+# =============================================================================
+
+@api_router.post("/auth/register")
+async def register(request_data: RegisterRequest, response: Response):
+    """Register a new user with email/password"""
+    email = request_data.email.lower().strip()
+    
+    # Check whitelist
+    whitelist_entry = await db.whitelist.find_one({"email": email}, {"_id": 0})
+    if not whitelist_entry:
+        raise HTTPException(
+            status_code=403, 
+            detail="Accès refusé. Votre email n'est pas autorisé. Contactez un administrateur pour être ajouté à la liste."
+        )
+    
+    # Check if email already exists
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Un compte existe déjà avec cet email")
+    
+    # Validate password
+    if len(request_data.password) < 6:
+        raise HTTPException(status_code=400, detail="Le mot de passe doit contenir au moins 6 caractères")
+    
+    # Create user with lecture_seule role (lowest permissions)
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    password_hash = hash_password(request_data.password)
+    
+    user_doc = {
+        "user_id": user_id,
+        "email": email,
+        "name": request_data.name,
+        "password_hash": password_hash,
+        "picture": None,
+        "roles": ["lecture_seule"],  # Default to read-only role
+        "is_active": True,
+        "auth_method": "email",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.users.insert_one(user_doc)
+    await log_action(user_id, "register", "users", user_id, f"Inscription par email: {email}")
+    
+    # Create tokens
+    access_token = create_access_token(user_id, email)
+    refresh_token = create_refresh_token(user_id)
+    
+    # Set cookies
+    response.set_cookie(
+        key="access_token", value=access_token,
+        httponly=True, secure=True, samesite="none",
+        max_age=7 * 24 * 60 * 60, path="/"
+    )
+    response.set_cookie(
+        key="refresh_token", value=refresh_token,
+        httponly=True, secure=True, samesite="none",
+        max_age=30 * 24 * 60 * 60, path="/"
+    )
+    
+    # Get permissions
+    permissions = await get_user_permissions(User(**{k: v for k, v in user_doc.items() if k != 'password_hash'}))
+    
+    return {
+        "user_id": user_id,
+        "email": email,
+        "name": request_data.name,
+        "roles": ["lecture_seule"],
+        "permissions": permissions,
+        "message": "Inscription réussie"
+    }
+
+@api_router.post("/auth/login/email")
+async def login_email(request_data: LoginRequest, request: Request, response: Response):
+    """Login with email/password"""
+    email = request_data.email.lower().strip()
+    
+    # Get client IP for brute force protection
+    client_ip = request.client.host if request.client else "unknown"
+    attempt_key = f"{client_ip}:{email}"
+    
+    # Check brute force lockout
+    attempts_doc = await db.login_attempts.find_one({"identifier": attempt_key}, {"_id": 0})
+    if attempts_doc:
+        if attempts_doc.get("locked_until"):
+            locked_until = datetime.fromisoformat(attempts_doc["locked_until"])
+            if locked_until > datetime.now(timezone.utc):
+                remaining = int((locked_until - datetime.now(timezone.utc)).total_seconds() / 60)
+                raise HTTPException(
+                    status_code=429, 
+                    detail=f"Trop de tentatives. Réessayez dans {remaining} minutes."
+                )
+    
+    # Find user
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user_doc:
+        await increment_login_attempts(attempt_key)
+        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
+    
+    # Check if user has password (might be Google-only account)
+    if not user_doc.get("password_hash"):
+        raise HTTPException(
+            status_code=400, 
+            detail="Ce compte utilise la connexion Google. Utilisez 'Se connecter avec Google'."
+        )
+    
+    # Verify password
+    if not verify_password(request_data.password, user_doc["password_hash"]):
+        await increment_login_attempts(attempt_key)
+        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
+    
+    # Check if account is active
+    if not user_doc.get("is_active", True):
+        raise HTTPException(status_code=401, detail="Compte désactivé")
+    
+    # Clear failed attempts on success
+    await db.login_attempts.delete_one({"identifier": attempt_key})
+    
+    user_id = user_doc["user_id"]
+    
+    # Create tokens
+    access_token = create_access_token(user_id, email)
+    refresh_token = create_refresh_token(user_id)
+    
+    # Set cookies
+    response.set_cookie(
+        key="access_token", value=access_token,
+        httponly=True, secure=True, samesite="none",
+        max_age=7 * 24 * 60 * 60, path="/"
+    )
+    response.set_cookie(
+        key="refresh_token", value=refresh_token,
+        httponly=True, secure=True, samesite="none",
+        max_age=30 * 24 * 60 * 60, path="/"
+    )
+    
+    await log_action(user_id, "login", "users", user_id, f"Connexion par email")
+    
+    # Get permissions
+    permissions = await get_user_permissions(User(**{k: v for k, v in user_doc.items() if k != 'password_hash'}))
+    
+    return {
+        "user_id": user_id,
+        "email": email,
+        "name": user_doc.get("name"),
+        "picture": user_doc.get("picture"),
+        "roles": user_doc.get("roles", ["lecture_seule"]),
+        "permissions": permissions
+    }
+
+async def increment_login_attempts(attempt_key: str):
+    """Increment failed login attempts and lock if necessary"""
+    attempts_doc = await db.login_attempts.find_one({"identifier": attempt_key}, {"_id": 0})
+    
+    if attempts_doc:
+        count = attempts_doc.get("count", 0) + 1
+        update = {"$set": {"count": count, "last_attempt": datetime.now(timezone.utc).isoformat()}}
+        
+        if count >= 5:
+            locked_until = datetime.now(timezone.utc) + timedelta(minutes=15)
+            update["$set"]["locked_until"] = locked_until.isoformat()
+        
+        await db.login_attempts.update_one({"identifier": attempt_key}, update)
+    else:
+        await db.login_attempts.insert_one({
+            "identifier": attempt_key,
+            "count": 1,
+            "last_attempt": datetime.now(timezone.utc).isoformat()
+        })
+
+@api_router.post("/auth/refresh")
+async def refresh_token(request: Request, response: Response):
+    """Refresh access token"""
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Token de rafraîchissement manquant")
+    
+    try:
+        payload = jwt.decode(refresh_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Type de token invalide")
+        
+        user_id = payload.get("sub")
+        user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+        if not user_doc:
+            raise HTTPException(status_code=401, detail="Utilisateur non trouvé")
+        
+        # Create new access token
+        new_access_token = create_access_token(user_id, user_doc["email"])
+        
+        response.set_cookie(
+            key="access_token", value=new_access_token,
+            httponly=True, secure=True, samesite="none",
+            max_age=7 * 24 * 60 * 60, path="/"
+        )
+        
+        return {"message": "Token rafraîchi"}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token de rafraîchissement expiré")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token invalide")
 
 
 # =============================================================================

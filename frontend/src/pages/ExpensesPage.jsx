@@ -353,14 +353,14 @@ export function ExpensesPage() {
             <div className="space-y-2">
               <Label htmlFor="event_id">Événement associé</Label>
               <Select 
-                value={formData.event_id} 
-                onValueChange={(value) => setFormData({ ...formData, event_id: value })}
+                value={formData.event_id || "none"} 
+                onValueChange={(value) => setFormData({ ...formData, event_id: value === "none" ? "" : value })}
               >
                 <SelectTrigger data-testid="expense-event">
                   <SelectValue placeholder="Aucun" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Aucun</SelectItem>
+                  <SelectItem value="none">Aucun</SelectItem>
                   {events.map(event => (
                     <SelectItem key={event.event_id} value={event.event_id}>
                       {event.name}
