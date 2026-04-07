@@ -1233,11 +1233,16 @@ async def list_subscriptions(
     
     subscriptions = await db.subscriptions.find(query, {"_id": 0}).to_list(5000)
     
-    # Enrich with member info
+    # Batch fetch member info (avoid N+1)
+    member_ids = list(set(s["member_id"] for s in subscriptions))
+    if member_ids:
+        members_list = await db.members.find({"member_id": {"$in": member_ids}}, {"_id": 0, "member_id": 1, "first_name": 1, "last_name": 1}).to_list(len(member_ids))
+        members_map = {m["member_id"]: f"{m['first_name']} {m['last_name']}" for m in members_list}
+    else:
+        members_map = {}
+    
     for sub in subscriptions:
-        member = await db.members.find_one({"member_id": sub["member_id"]}, {"_id": 0, "first_name": 1, "last_name": 1})
-        if member:
-            sub["member_name"] = f"{member['first_name']} {member['last_name']}"
+        sub["member_name"] = members_map.get(sub["member_id"], sub["member_id"])
     
     return subscriptions
 
@@ -1447,10 +1452,19 @@ async def list_events(
     
     events = await db.events.find(query, {"_id": 0}).sort("date", -1).to_list(500)
     
-    # Add participant count
+    # Batch fetch participant counts (avoid N+1)
+    event_ids = [e["event_id"] for e in events]
+    if event_ids:
+        counts = await db.participations.aggregate([
+            {"$match": {"event_id": {"$in": event_ids}}},
+            {"$group": {"_id": "$event_id", "count": {"$sum": 1}}}
+        ]).to_list(len(event_ids))
+        counts_map = {c["_id"]: c["count"] for c in counts}
+    else:
+        counts_map = {}
+    
     for event in events:
-        count = await db.participations.count_documents({"event_id": event["event_id"]})
-        event["participant_count"] = count
+        event["participant_count"] = counts_map.get(event["event_id"], 0)
     
     return events
 
@@ -1461,10 +1475,17 @@ async def get_event(event_id: str, user: User = Depends(get_current_user)):
     if not event:
         raise HTTPException(status_code=404, detail="Événement non trouvé")
     
-    # Get participations with member info
+    # Get participations with member info (batch fetch)
     participations = await db.participations.find({"event_id": event_id}, {"_id": 0}).to_list(200)
+    member_ids = list(set(p["member_id"] for p in participations))
+    if member_ids:
+        members_list = await db.members.find({"member_id": {"$in": member_ids}}, {"_id": 0, "member_id": 1, "first_name": 1, "last_name": 1, "pseudo": 1}).to_list(len(member_ids))
+        members_map = {m["member_id"]: m for m in members_list}
+    else:
+        members_map = {}
+    
     for part in participations:
-        member = await db.members.find_one({"member_id": part["member_id"]}, {"_id": 0, "first_name": 1, "last_name": 1, "pseudo": 1})
+        member = members_map.get(part["member_id"])
         if member:
             part["member_name"] = f"{member['first_name']} {member['last_name']}"
             part["member_pseudo"] = member.get("pseudo")
