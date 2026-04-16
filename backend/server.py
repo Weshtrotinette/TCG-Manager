@@ -347,7 +347,7 @@ class Settings(BaseModel):
     payment_methods: List[str] = ["especes", "carte", "virement", "paypal", "cheque", "autre"]
     member_statuses: List[str] = ["nouveau", "essai", "actif", "non_a_jour", "archive"]
     expense_categories: List[str] = ["consommables", "merchandising", "location", "lots", "materiel", "communication", "divers"]
-    product_categories: List[str] = ["boissons", "nourriture", "formules", "accessoires", "textile", "goodies", "autres"]
+    product_categories: Dict[str, List[str]] = {"boissons": [], "nourriture": [], "formules": [], "accessoires": [], "textile": [], "goodies": [], "autres": []}
     event_types: List[str] = ["tournoi", "ligue", "session_libre", "demonstration", "atelier"]
     event_formats: List[str] = ["suisse", "elimination_simple", "double_elimination", "round_robin", "poules_top_cut"]
 
@@ -360,7 +360,7 @@ class SettingsUpdate(BaseModel):
     payment_methods: Optional[List[str]] = None
     member_statuses: Optional[List[str]] = None
     expense_categories: Optional[List[str]] = None
-    product_categories: Optional[List[str]] = None
+    product_categories: Optional[Dict[str, List[str]]] = None
     event_types: Optional[List[str]] = None
     event_formats: Optional[List[str]] = None
 
@@ -2983,6 +2983,14 @@ async def startup_event():
         if update_fields:
             await db.settings.update_one({"settings_id": "main_settings"}, {"$set": update_fields})
             logger.info("Settings migrated with new fields")
+        
+        # Migrate product_categories from array to dict if needed
+        if isinstance(settings.get("product_categories"), list):
+            cats_dict = {}
+            for cat in settings["product_categories"]:
+                cats_dict[cat] = []
+            await db.settings.update_one({"settings_id": "main_settings"}, {"$set": {"product_categories": cats_dict}})
+            logger.info("Product categories migrated to dict format")
     
     # Initialize default roles if not exists
     roles_count = await db.roles.count_documents({})

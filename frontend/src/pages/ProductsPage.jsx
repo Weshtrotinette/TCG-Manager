@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
-import { formatCurrency, productCategoryLabels, cn } from '../lib/utils';
+import { formatCurrency, cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 export function ProductsPage() {
   const { hasPermission } = useAuth();
   const [products, setProducts] = useState([]);
+  const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -48,7 +49,7 @@ export function ProductsPage() {
   const [restockComment, setRestockComment] = useState('');
   const [formData, setFormData] = useState({
     name: '',
-    category: 'consommable',
+    category: '',
     subcategory: '',
     description: '',
     price: 0,
@@ -59,16 +60,26 @@ export function ProductsPage() {
   });
 
   useEffect(() => {
-    loadProducts();
+    loadData();
   }, []);
 
-  const loadProducts = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      const data = await api.getProducts({ active_only: false });
-      setProducts(data);
+      const [productsData, settingsData] = await Promise.all([
+        api.getProducts({ active_only: false }),
+        api.getSettings(),
+      ]);
+      setProducts(productsData);
+      // Migrate product_categories if needed
+      if (Array.isArray(settingsData.product_categories)) {
+        const obj = {};
+        settingsData.product_categories.forEach(c => { obj[c] = []; });
+        settingsData.product_categories = obj;
+      }
+      setSettings(settingsData);
     } catch (err) {
-      toast.error('Erreur lors du chargement des produits');
+      toast.error('Erreur lors du chargement');
     } finally {
       setLoading(false);
     }
@@ -103,7 +114,7 @@ export function ProductsPage() {
       }
       setIsProductDialogOpen(false);
       resetForm();
-      loadProducts();
+      loadData();
     } catch (err) {
       toast.error(err.message);
     }
@@ -121,7 +132,7 @@ export function ProductsPage() {
       setRestockProduct(null);
       setRestockQuantity(0);
       setRestockComment('');
-      loadProducts();
+      loadData();
     } catch (err) {
       toast.error(err.message);
     }
@@ -152,9 +163,11 @@ export function ProductsPage() {
 
   const resetForm = () => {
     setEditingProduct(null);
+    const cats = settings?.product_categories || {};
+    const firstCat = Object.keys(cats)[0] || '';
     setFormData({
       name: '',
-      category: 'consommable',
+      category: firstCat,
       subcategory: '',
       description: '',
       price: 0,
@@ -206,8 +219,9 @@ export function ProductsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Toutes catégories</SelectItem>
-            <SelectItem value="consommable">Consommables</SelectItem>
-            <SelectItem value="merchandising">Merchandising</SelectItem>
+            {Object.keys(settings?.product_categories || {}).map(cat => (
+              <SelectItem key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -258,8 +272,8 @@ export function ProductsPage() {
                         <div>
                           <div className="font-medium">{product.name}</div>
                           {product.subcategory && (
-                            <div className="text-xs text-muted-foreground">
-                              {productCategoryLabels[product.subcategory] || product.subcategory}
+                            <div className="text-xs text-muted-foreground capitalize">
+                              {product.subcategory}
                             </div>
                           )}
                         </div>
@@ -349,14 +363,15 @@ export function ProductsPage() {
                 <Label htmlFor="category">Catégorie *</Label>
                 <Select 
                   value={formData.category} 
-                  onValueChange={(value) => setFormData({ ...formData, category: value })}
+                  onValueChange={(value) => setFormData({ ...formData, category: value, subcategory: '' })}
                 >
                   <SelectTrigger data-testid="product-category">
-                    <SelectValue />
+                    <SelectValue placeholder="Sélectionner" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="consommable">Consommable</SelectItem>
-                    <SelectItem value="merchandising">Merchandising</SelectItem>
+                    {Object.keys(settings?.product_categories || {}).map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -370,8 +385,8 @@ export function ProductsPage() {
                     <SelectValue placeholder="Sélectionner" />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.entries(productCategoryLabels).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>{label}</SelectItem>
+                    {((settings?.product_categories || {})[formData.category] || []).map(sub => (
+                      <SelectItem key={sub} value={sub}>{sub.charAt(0).toUpperCase() + sub.slice(1)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
