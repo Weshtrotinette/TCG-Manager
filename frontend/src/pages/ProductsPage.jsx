@@ -30,7 +30,7 @@ import {
 } from '../components/ui/table';
 import { 
   Plus, Search, Filter, Package, AlertTriangle, 
-  Edit, PackagePlus, ImagePlus, X
+  Edit, PackagePlus, ImagePlus, X, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -43,12 +43,15 @@ export function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isProductDialogOpen, setIsProductDialogOpen] = useState(false);
   const [isRestockDialogOpen, setIsRestockDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [deletingProduct, setDeletingProduct] = useState(null);
   const [restockProduct, setRestockProduct] = useState(null);
   const [restockQuantity, setRestockQuantity] = useState(0);
   const [restockComment, setRestockComment] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [imageRemoved, setImageRemoved] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [formData, setFormData] = useState({
@@ -127,6 +130,13 @@ export function ProductsPage() {
         } catch (imgErr) {
           toast.error('Erreur upload image: ' + imgErr.message);
         }
+      } else if (imageRemoved && editingProduct) {
+        // User explicitly removed the image
+        try {
+          await api.deleteProductImage(editingProduct.product_id);
+        } catch (imgErr) {
+          toast.error('Erreur suppression image: ' + imgErr.message);
+        }
       }
 
       setIsProductDialogOpen(false);
@@ -172,6 +182,7 @@ export function ProductsPage() {
     });
     setImageFile(null);
     setImagePreview(product.image_url || null);
+    setImageRemoved(false);
     setIsProductDialogOpen(true);
   };
 
@@ -199,6 +210,7 @@ export function ProductsPage() {
     });
     setImageFile(null);
     setImagePreview(null);
+    setImageRemoved(false);
   };
 
   const openNewProductDialog = () => {
@@ -214,6 +226,7 @@ export function ProductsPage() {
       return;
     }
     setImageFile(file);
+    setImageRemoved(false);
     const reader = new FileReader();
     reader.onloadend = () => setImagePreview(reader.result);
     reader.readAsDataURL(file);
@@ -222,12 +235,31 @@ export function ProductsPage() {
   const clearImage = () => {
     setImageFile(null);
     setImagePreview(null);
+    setImageRemoved(true);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const isLowStock = (product) => {
     return product.track_stock && 
            product.stock_quantity <= (product.low_stock_threshold || 5);
+  };
+
+  const openDeleteDialog = (product) => {
+    setDeletingProduct(product);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deletingProduct) return;
+    try {
+      await api.deleteProduct(deletingProduct.product_id);
+      toast.success('Produit supprime');
+      setIsDeleteDialogOpen(false);
+      setDeletingProduct(null);
+      loadData();
+    } catch (err) {
+      toast.error(err.message);
+    }
   };
 
   return (
@@ -376,6 +408,17 @@ export function ProductsPage() {
                             data-testid={`edit-product-${product.product_id}`}
                           >
                             <Edit className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {hasPermission('products:update') && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => openDeleteDialog(product)}
+                            data-testid={`delete-product-${product.product_id}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         )}
                       </div>
@@ -610,6 +653,26 @@ export function ProductsPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Supprimer le produit</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Etes-vous sur de vouloir supprimer <strong>{deletingProduct?.name}</strong> ? Cette action est irreversible.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} data-testid="confirm-delete-product-btn">
+              Supprimer
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

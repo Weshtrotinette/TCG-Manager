@@ -1769,6 +1769,41 @@ async def upload_product_image(product_id: str, file: UploadFile = File(...), us
     
     return {"image_url": image_url, "message": "Image uploadée"}
 
+@api_router.delete("/products/{product_id}/image")
+async def delete_product_image(product_id: str, user: User = Depends(get_current_user)):
+    """Delete product image"""
+    product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Produit non trouvé")
+    
+    # Remove file from disk
+    if product.get("image_url"):
+        filename = product["image_url"].split("/")[-1]
+        filepath = UPLOADS_DIR / filename
+        if filepath.exists():
+            filepath.unlink()
+    
+    await db.products.update_one({"product_id": product_id}, {"$set": {"image_url": None}})
+    return {"message": "Image supprimée"}
+
+@api_router.delete("/products/{product_id}")
+async def delete_product(product_id: str, user: User = Depends(get_current_user)):
+    """Delete a product"""
+    product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Produit non trouvé")
+    
+    # Remove image file if exists
+    if product.get("image_url"):
+        filename = product["image_url"].split("/")[-1]
+        filepath = UPLOADS_DIR / filename
+        if filepath.exists():
+            filepath.unlink()
+    
+    await db.products.delete_one({"product_id": product_id})
+    await log_action(user.user_id, "delete", "products", product_id, f"Produit supprimé: {product.get('name', '')}")
+    return {"message": "Produit supprimé"}
+
 
 # =============================================================================
 # SALES (POS) ROUTES

@@ -155,6 +155,14 @@ class ApiClient {
     return this.request(`/products/${productId}/restock`, { method: 'POST', body: data });
   }
 
+  deleteProduct(productId) {
+    return this.request(`/products/${productId}`, { method: 'DELETE' });
+  }
+
+  deleteProductImage(productId) {
+    return this.request(`/products/${productId}/image`, { method: 'DELETE' });
+  }
+
   async uploadProductImage(productId, file) {
     const url = `${this.baseUrl}/products/${productId}/upload-image`;
     const formData = new FormData();

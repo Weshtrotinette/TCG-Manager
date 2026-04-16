@@ -37,10 +37,12 @@ Application web interne de gestion d'une association de tournois TCG pour ~150 j
 ### Products & POS (DONE - Updated 2026-04-16)
 - [x] Categories dynamiques avec sous-categories (dict schema)
 - [x] Upload photo produit (JPG/PNG/WebP/GIF, max 5Mo)
+- [x] Suppression photo produit (bouton X dans dialogue edition)
 - [x] Photos visibles dans le tableau produits et en caisse
 - [x] POS: regroupement par sous-categorie (ex: BOISSONS, SNACK)
 - [x] Whitelist sous-categories visibles en caisse (Parametres > Caisse)
 - [x] Modes de paiement dynamiques en caisse (depuis Parametres)
+- [x] Suppression de produits avec confirmation
 
 ### Settings (DONE - Updated 2026-04-16)
 - [x] Reorganisation avec 6 onglets: General, Paiements, Produits, Caisse, Evenements, Depenses
@@ -67,3 +69,11 @@ Application web interne de gestion d'une association de tournois TCG pour ~150 j
 - Database: MongoDB
 - Auth: Emergent Google OAuth + JWT
 - File Storage: /app/backend/uploads/products/ served via /api/uploads/
+
+## API Endpoints (Products)
+- GET /api/products - List products
+- POST /api/products - Create product
+- PUT /api/products/{id} - Update product
+- DELETE /api/products/{id} - Delete product
+- POST /api/products/{id}/upload-image - Upload product image
+- DELETE /api/products/{id}/image - Delete product image
