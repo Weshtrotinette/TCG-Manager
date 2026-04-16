@@ -1,5 +1,6 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -15,6 +16,7 @@ import bcrypt
 import jwt
 import random
 import math
+import shutil
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -30,6 +32,13 @@ db = client[os.environ['DB_NAME']]
 
 # Create the main app
 app = FastAPI(title="TCG Association Manager")
+
+# Uploads directory for product images
+UPLOADS_DIR = ROOT_DIR / "uploads" / "products"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Serve uploaded files as static
+app.mount("/api/uploads", StaticFiles(directory=str(ROOT_DIR / "uploads")), name="uploads")
 
 # Create router with /api prefix
 api_router = APIRouter(prefix="/api")
@@ -222,6 +231,7 @@ class Product(BaseModel):
     category: str  # consommable, merchandising
     subcategory: Optional[str] = None  # boissons, nourriture, textile, etc.
     description: Optional[str] = None
+    image_url: Optional[str] = None
     price: float
     cost: Optional[float] = None
     track_stock: bool = True
@@ -235,6 +245,7 @@ class ProductCreate(BaseModel):
     category: str
     subcategory: Optional[str] = None
     description: Optional[str] = None
+    image_url: Optional[str] = None
     price: float
     cost: Optional[float] = None
     track_stock: bool = True
@@ -246,6 +257,7 @@ class ProductUpdate(BaseModel):
     category: Optional[str] = None
     subcategory: Optional[str] = None
     description: Optional[str] = None
+    image_url: Optional[str] = None
     price: Optional[float] = None
     cost: Optional[float] = None
     track_stock: Optional[bool] = None
@@ -348,6 +360,7 @@ class Settings(BaseModel):
     member_statuses: List[str] = ["nouveau", "essai", "actif", "non_a_jour", "archive"]
     expense_categories: List[str] = ["consommables", "merchandising", "location", "lots", "materiel", "communication", "divers"]
     product_categories: Dict[str, List[str]] = {"boissons": [], "nourriture": [], "formules": [], "accessoires": [], "textile": [], "goodies": [], "autres": []}
+    pos_visible_subcategories: List[str] = []
     event_types: List[str] = ["tournoi", "ligue", "session_libre", "demonstration", "atelier"]
     event_formats: List[str] = ["suisse", "elimination_simple", "double_elimination", "round_robin", "poules_top_cut"]
 
@@ -361,6 +374,7 @@ class SettingsUpdate(BaseModel):
     member_statuses: Optional[List[str]] = None
     expense_categories: Optional[List[str]] = None
     product_categories: Optional[Dict[str, List[str]]] = None
+    pos_visible_subcategories: Optional[List[str]] = None
     event_types: Optional[List[str]] = None
     event_formats: Optional[List[str]] = None
 
@@ -1724,6 +1738,37 @@ async def restock_product(product_id: str, restock_data: RestockCreate, user: Us
     
     return {"message": "Stock mis à jour"}
 
+@api_router.post("/products/{product_id}/upload-image")
+async def upload_product_image(product_id: str, file: UploadFile = File(...), user: User = Depends(get_current_user)):
+    """Upload an image for a product"""
+    product = await db.products.find_one({"product_id": product_id}, {"_id": 0})
+    if not product:
+        raise HTTPException(status_code=404, detail="Produit non trouvé")
+    
+    # Validate file type
+    allowed_types = ["image/jpeg", "image/png", "image/webp", "image/gif"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Type de fichier non supporté. Utilisez JPG, PNG, WebP ou GIF.")
+    
+    # Limit file size to 5MB
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Fichier trop volumineux (max 5 Mo)")
+    
+    # Save file
+    ext = file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'jpg'
+    filename = f"{product_id}.{ext}"
+    filepath = UPLOADS_DIR / filename
+    
+    with open(filepath, "wb") as f:
+        f.write(contents)
+    
+    # Update product with image URL
+    image_url = f"/api/uploads/products/{filename}"
+    await db.products.update_one({"product_id": product_id}, {"$set": {"image_url": image_url}})
+    
+    return {"image_url": image_url, "message": "Image uploadée"}
+
 
 # =============================================================================
 # SALES (POS) ROUTES
@@ -2980,6 +3025,8 @@ async def startup_event():
             update_fields["event_types"] = ["tournoi", "ligue", "session_libre", "demonstration", "atelier"]
         if "event_formats" not in settings:
             update_fields["event_formats"] = ["suisse", "elimination_simple", "double_elimination", "round_robin", "poules_top_cut"]
+        if "pos_visible_subcategories" not in settings:
+            update_fields["pos_visible_subcategories"] = []
         if update_fields:
             await db.settings.update_one({"settings_id": "main_settings"}, {"$set": update_fields})
             logger.info("Settings migrated with new fields")

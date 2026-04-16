@@ -155,6 +155,22 @@ class ApiClient {
     return this.request(`/products/${productId}/restock`, { method: 'POST', body: data });
   }
 
+  async uploadProductImage(productId, file) {
+    const url = `${this.baseUrl}/products/${productId}/upload-image`;
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Erreur upload' }));
+      throw new Error(error.detail || `HTTP error ${response.status}`);
+    }
+    return response.json();
+  }
+
   // Sales
   getSales(params = {}) {
     const query = new URLSearchParams(params).toString();

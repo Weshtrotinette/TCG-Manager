@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
 import { formatCurrency, cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -30,7 +30,7 @@ import {
 } from '../components/ui/table';
 import { 
   Plus, Search, Filter, Package, AlertTriangle, 
-  Edit, PackagePlus 
+  Edit, PackagePlus, ImagePlus, X
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -47,6 +47,10 @@ export function ProductsPage() {
   const [restockProduct, setRestockProduct] = useState(null);
   const [restockQuantity, setRestockQuantity] = useState(0);
   const [restockComment, setRestockComment] = useState('');
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -71,7 +75,6 @@ export function ProductsPage() {
         api.getSettings(),
       ]);
       setProducts(productsData);
-      // Migrate product_categories if needed
       if (Array.isArray(settingsData.product_categories)) {
         const obj = {};
         settingsData.product_categories.forEach(c => { obj[c] = []; });
@@ -88,35 +91,51 @@ export function ProductsPage() {
   const filteredProducts = products.filter(product => {
     const matchesSearch = searchQuery === '' || 
       product.name.toLowerCase().includes(searchQuery.toLowerCase());
-    
     const matchesCategory = categoryFilter === 'all' || product.category === categoryFilter;
-    
     return matchesSearch && matchesCategory;
   });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      setUploading(true);
       const payload = {
         ...formData,
+        subcategory: formData.subcategory === 'none' ? null : (formData.subcategory || null),
         price: parseFloat(formData.price),
         cost: formData.cost ? parseFloat(formData.cost) : null,
         stock_quantity: parseInt(formData.stock_quantity),
         low_stock_threshold: parseInt(formData.low_stock_threshold),
       };
 
+      let productId;
       if (editingProduct) {
         await api.updateProduct(editingProduct.product_id, payload);
-        toast.success('Produit mis à jour');
+        productId = editingProduct.product_id;
+        toast.success('Produit mis a jour');
       } else {
-        await api.createProduct(payload);
-        toast.success('Produit créé');
+        const result = await api.createProduct(payload);
+        productId = result.product_id;
+        toast.success('Produit cree');
       }
+
+      // Upload image if selected
+      if (imageFile && productId) {
+        try {
+          await api.uploadProductImage(productId, imageFile);
+          toast.success('Image uploadee');
+        } catch (imgErr) {
+          toast.error('Erreur upload image: ' + imgErr.message);
+        }
+      }
+
       setIsProductDialogOpen(false);
       resetForm();
       loadData();
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -127,7 +146,7 @@ export function ProductsPage() {
         quantity: parseInt(restockQuantity),
         comment: restockComment,
       });
-      toast.success('Stock mis à jour');
+      toast.success('Stock mis a jour');
       setIsRestockDialogOpen(false);
       setRestockProduct(null);
       setRestockQuantity(0);
@@ -151,6 +170,8 @@ export function ProductsPage() {
       stock_quantity: product.stock_quantity,
       low_stock_threshold: product.low_stock_threshold || 5,
     });
+    setImageFile(null);
+    setImagePreview(product.image_url || null);
     setIsProductDialogOpen(true);
   };
 
@@ -176,11 +197,32 @@ export function ProductsPage() {
       stock_quantity: 0,
       low_stock_threshold: 5,
     });
+    setImageFile(null);
+    setImagePreview(null);
   };
 
   const openNewProductDialog = () => {
     resetForm();
     setIsProductDialogOpen(true);
+  };
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Fichier trop volumineux (max 5 Mo)');
+      return;
+    }
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setImagePreview(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const clearImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const isLowStock = (product) => {
@@ -215,10 +257,10 @@ export function ProductsPage() {
         <Select value={categoryFilter} onValueChange={setCategoryFilter}>
           <SelectTrigger className="w-full sm:w-48" data-testid="category-filter">
             <Filter className="h-4 w-4 mr-2" />
-            <SelectValue placeholder="Catégorie" />
+            <SelectValue placeholder="Categorie" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Toutes catégories</SelectItem>
+            <SelectItem value="all">Toutes categories</SelectItem>
             {Object.keys(settings?.product_categories || {}).map(cat => (
               <SelectItem key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</SelectItem>
             ))}
@@ -244,10 +286,11 @@ export function ProductsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12"></TableHead>
                 <TableHead>Produit</TableHead>
-                <TableHead>Catégorie</TableHead>
+                <TableHead>Categorie</TableHead>
                 <TableHead className="text-right">Prix</TableHead>
-                <TableHead className="text-right">Coût</TableHead>
+                <TableHead className="text-right">Cout</TableHead>
                 <TableHead className="text-right">Stock</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -255,8 +298,8 @@ export function ProductsPage() {
             <TableBody>
               {filteredProducts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    Aucun produit trouvé
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    Aucun produit trouve
                   </TableCell>
                 </TableRow>
               ) : (
@@ -266,21 +309,27 @@ export function ProductsPage() {
                     className={cn(!product.is_active && "opacity-50")}
                     data-testid={`product-row-${product.product_id}`}
                   >
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Package className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <div className="font-medium">{product.name}</div>
-                          {product.subcategory && (
-                            <div className="text-xs text-muted-foreground capitalize">
-                              {product.subcategory}
-                            </div>
-                          )}
+                    <TableCell className="w-12 pr-0">
+                      {product.image_url ? (
+                        <img src={product.image_url} alt="" className="w-9 h-9 object-cover rounded" />
+                      ) : (
+                        <div className="w-9 h-9 rounded bg-muted flex items-center justify-center">
+                          <Package className="h-4 w-4 text-muted-foreground/40" />
                         </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div>
+                        <div className="font-medium">{product.name}</div>
+                        {product.subcategory && (
+                          <div className="text-xs text-muted-foreground capitalize">
+                            {product.subcategory}
+                          </div>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className="text-xs px-2 py-0.5 bg-muted uppercase">
+                      <span className="text-xs px-2 py-0.5 bg-muted uppercase rounded">
                         {product.category}
                       </span>
                     </TableCell>
@@ -341,13 +390,55 @@ export function ProductsPage() {
 
       {/* Add/Edit Product Dialog */}
       <Dialog open={isProductDialogOpen} onOpenChange={setIsProductDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingProduct ? 'Modifier le produit' : 'Nouveau produit'}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Image Upload */}
+            <div className="space-y-2">
+              <Label>Photo du produit</Label>
+              <div className="flex items-center gap-3">
+                {imagePreview ? (
+                  <div className="relative">
+                    <img src={imagePreview} alt="Preview" className="w-20 h-20 object-cover rounded-lg border border-border" />
+                    <button
+                      type="button"
+                      onClick={clearImage}
+                      className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-0.5"
+                      data-testid="clear-product-image"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-20 h-20 rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center cursor-pointer hover:border-primary/50 transition-colors"
+                    data-testid="image-upload-zone"
+                  >
+                    <ImagePlus className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-[10px] text-muted-foreground mt-1">Ajouter</span>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={handleImageSelect}
+                  className="hidden"
+                  data-testid="product-image-input"
+                />
+                {imagePreview && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                    Changer
+                  </Button>
+                )}
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="name">Nom *</Label>
               <Input
@@ -360,13 +451,13 @@ export function ProductsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="category">Catégorie *</Label>
+                <Label htmlFor="category">Categorie *</Label>
                 <Select 
                   value={formData.category} 
                   onValueChange={(value) => setFormData({ ...formData, category: value, subcategory: '' })}
                 >
                   <SelectTrigger data-testid="product-category">
-                    <SelectValue placeholder="Sélectionner" />
+                    <SelectValue placeholder="Selectionner" />
                   </SelectTrigger>
                   <SelectContent>
                     {Object.keys(settings?.product_categories || {}).map(cat => (
@@ -376,15 +467,16 @@ export function ProductsPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="subcategory">Sous-catégorie</Label>
+                <Label htmlFor="subcategory">Sous-categorie</Label>
                 <Select 
                   value={formData.subcategory} 
                   onValueChange={(value) => setFormData({ ...formData, subcategory: value })}
                 >
                   <SelectTrigger data-testid="product-subcategory">
-                    <SelectValue placeholder="Sélectionner" />
+                    <SelectValue placeholder="Selectionner" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="none">Aucune</SelectItem>
                     {((settings?.product_categories || {})[formData.category] || []).map(sub => (
                       <SelectItem key={sub} value={sub}>{sub.charAt(0).toUpperCase() + sub.slice(1)}</SelectItem>
                     ))}
@@ -403,7 +495,7 @@ export function ProductsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="price">Prix de vente (€) *</Label>
+                <Label htmlFor="price">Prix de vente (EUR) *</Label>
                 <Input
                   id="price"
                   type="number"
@@ -416,7 +508,7 @@ export function ProductsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cost">Coût d'achat (€)</Label>
+                <Label htmlFor="cost">Cout d'achat (EUR)</Label>
                 <Input
                   id="cost"
                   type="number"
@@ -435,7 +527,7 @@ export function ProductsPage() {
                 onCheckedChange={(checked) => setFormData({ ...formData, track_stock: checked })}
                 data-testid="product-track-stock"
               />
-              <Label htmlFor="track_stock">Gérer le stock</Label>
+              <Label htmlFor="track_stock">Gerer le stock</Label>
             </div>
             {formData.track_stock && (
               <div className="grid grid-cols-2 gap-4">
@@ -467,8 +559,8 @@ export function ProductsPage() {
               <Button type="button" variant="outline" onClick={() => setIsProductDialogOpen(false)}>
                 Annuler
               </Button>
-              <Button type="submit" data-testid="save-product-btn">
-                {editingProduct ? 'Enregistrer' : 'Créer'}
+              <Button type="submit" disabled={uploading} data-testid="save-product-btn">
+                {uploading ? 'Enregistrement...' : (editingProduct ? 'Enregistrer' : 'Creer')}
               </Button>
             </DialogFooter>
           </form>
@@ -480,7 +572,7 @@ export function ProductsPage() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>
-              Réapprovisionner: {restockProduct?.name}
+              Reapprovisionner: {restockProduct?.name}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleRestock} className="space-y-4">
@@ -488,7 +580,7 @@ export function ProductsPage() {
               Stock actuel: <strong>{restockProduct?.stock_quantity}</strong>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="restock_quantity">Quantité à ajouter *</Label>
+              <Label htmlFor="restock_quantity">Quantite a ajouter *</Label>
               <Input
                 id="restock_quantity"
                 type="number"
