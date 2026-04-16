@@ -7,59 +7,47 @@ Application web interne de gestion d'une association de tournois TCG pour ~150 j
 
 ### Auth & Roles (DONE)
 - [x] Google OAuth (Emergent) + Email/Password + Whitelist
-- [x] RBAC: President, Tresorier, Organisateur, Lecture seule (defaut)
+- [x] RBAC: President, Tresorier, Organisateur, Lecture seule
 
 ### Members (DONE)
-- [x] Adherents vs Non-adherents (member_type)
-- [x] Auto-status adherents: nouveau -> essai -> non_a_jour -> actif
-- [x] Status non gere pour non-adherents
+- [x] Adherents vs Non-adherents, Auto-status
 
-### Events & Tournaments (DONE - Updated 2026-04-16)
-- [x] Event CRUD, dropdown Type/Format (configurable Settings)
-- [x] Tournament: Swiss (Buchholz), Single Elim (bracket), Round Robin (circle)
-- [x] Participants filtres: present + paye uniquement
-- [x] Searchable member dropdown dans event detail
-- [x] Format du tournoi preselectionne depuis le format de l'evenement
-- [x] BYE affiche uniquement quand player2_id est null (pas sur nom vide)
-- [x] Suppression evenement via dialogue de confirmation UI
-- [x] Suppression tournoi en cours via dialogue de confirmation UI
+### Events & Tournaments (DONE)
+- [x] Event CRUD, Tournament Swiss/RoundRobin/Elimination
+- [x] Format preselectionne, BYE fix, suppression via dialog
 
-### Cotisations (DONE)
-- [x] Tableau par saison, vide a chaque nouvelle saison
-- [x] Bouton "Nouvelle saison" -> archive + reset adherents en non_a_jour
-- [x] Archives consultables par saison
-- [x] Modifier cotisation (montant du) + Supprimer
-- [x] Paiement avec recalcul auto du statut membre
-- [x] Seuls les adherents dans la liste cotisations
+### Cotisations (DONE - Updated 2026-04-16)
+- [x] Montant fixe depuis les parametres (non editable)
+- [x] Checkbox Pack Tournois + Carte Snack lors de la creation
+- [x] Cartes attribuees UNIQUEMENT au paiement complet (pas a la creation)
+- [x] Saison, archives, paiements partiels
 
-### Finance (DONE)
-- [x] POS tablette + Page Ventes (historique, annulation)
-- [x] Dashboard mois = ventes seules, annee = tout compris
-- [x] Rapport financier mensuel coherent (ventes + subs + inscriptions)
-- [x] Expenses CRUD
+### Pack Tournois (NEW 2026-04-16)
+- [x] Attribue au membre quand cotisation payee (1 seul par membre)
+- [x] Utilisable lors du reglement d'un evenement
+- [x] Parametre: prix ajustable + definitif ou saisonnier
 
-### Products & POS (DONE - Updated 2026-04-16)
-- [x] Categories dynamiques avec sous-categories (dict schema)
-- [x] Upload photo produit (JPG/PNG/WebP/GIF, max 5Mo)
-- [x] Suppression photo produit
-- [x] Suppression de produits avec confirmation
-- [x] Photos visibles dans le tableau produits et en caisse
-- [x] POS: regroupement par sous-categorie (ex: BOISSONS, SNACK)
-- [x] Whitelist sous-categories visibles en caisse (Parametres > Caisse)
-- [x] Modes de paiement dynamiques en caisse (depuis Parametres)
+### Carte Snack (NEW 2026-04-16)
+- [x] Creee quand cotisation payee (prix 10EUR, valeur 12EUR par defaut)
+- [x] Membre peut avoir plusieurs cartes
+- [x] Utilisable en caisse rapide via dropdown membre
+- [x] Deduction partielle (reste paye par autre moyen)
+- [x] Parametre: prix/valeur ajustables + definitif ou saisonnier
 
 ### Settings (DONE - Updated 2026-04-16)
-- [x] Reorganisation avec 6 onglets: General, Paiements, Produits, Caisse, Evenements, Depenses
-- [x] Auto-save pour les listes (modes de paiement, categories, etc.)
-- [x] Whitelist POS: checkboxes pour choisir les sous-categories affichees en caisse
+- [x] 6 onglets, auto-save listes
+- [x] Pack Tournois prix, Carte Snack prix/valeur, cartes definitives toggle
+- [x] Date renouvellement saison (jour/mois)
+
+### Products & POS (DONE)
+- [x] Categories/sous-categories, photos, whitelist POS, paiements dynamiques
+- [x] Dropdown carte snack en caisse rapide
 
 ### UI (DONE)
-- [x] Dark/Light mode, Swiss design
-- [x] Sidebar retractable tablette
-- [x] PWA (Progressive Web App)
-- [x] Dialogues de confirmation UI (pas de window.confirm)
+- [x] Dark/Light mode, PWA, dialogues confirmation UI
 
 ## Backlog (P2)
+- [ ] Pack tournois: utilisation dans EventDetailPage (checkbox lors du paiement inscription)
 - [ ] Portail membre self-service
 - [ ] Inscriptions en ligne
 - [ ] Paiement en ligne

@@ -1312,26 +1312,6 @@ async def create_subscription(sub_data: SubscriptionCreate, user: User = Depends
     
     await db.subscriptions.insert_one(doc)
     
-    # If pack tournois included, flag the member
-    if sub_data.includes_pack_tournois:
-        await db.members.update_one(
-            {"member_id": sub_data.member_id},
-            {"$set": {"has_pack_tournois": True}}
-        )
-    
-    # If carte snack included, create a snack card
-    if sub_data.includes_carte_snack:
-        snack_value = settings.get("carte_snack_value", 12.0) if settings else 12.0
-        card = SnackCard(
-            member_id=sub_data.member_id,
-            balance=snack_value,
-            initial_value=snack_value,
-            season=sub_data.season
-        )
-        card_doc = card.model_dump()
-        card_doc['created_at'] = card_doc['created_at'].isoformat()
-        await db.snack_cards.insert_one(card_doc)
-    
     await log_action(user.user_id, "create", "subscriptions", subscription.subscription_id, 
                      f"Cotisation creee pour {member['first_name']} {member['last_name']}")
     
@@ -1411,6 +1391,34 @@ async def add_payment(subscription_id: str, payment_data: PaymentCreate, user: U
             {"member_id": sub["member_id"]},
             {"$set": {"membership_date": datetime.now(timezone.utc).isoformat()}}
         )
+        
+        # Attribute pack tournois if included and not already given
+        if sub.get("includes_pack_tournois"):
+            await db.members.update_one(
+                {"member_id": sub["member_id"]},
+                {"$set": {"has_pack_tournois": True}}
+            )
+        
+        # Attribute carte snack if included and not already given
+        if sub.get("includes_carte_snack"):
+            settings = await db.settings.find_one({"settings_id": "main_settings"}, {"_id": 0})
+            snack_value = settings.get("carte_snack_value", 12.0) if settings else 12.0
+            # Check if card was already created for this subscription
+            existing_card = await db.snack_cards.find_one({
+                "member_id": sub["member_id"],
+                "season": sub.get("season"),
+                "initial_value": snack_value
+            })
+            if not existing_card:
+                card = SnackCard(
+                    member_id=sub["member_id"],
+                    balance=snack_value,
+                    initial_value=snack_value,
+                    season=sub.get("season", "")
+                )
+                card_doc = card.model_dump()
+                card_doc['created_at'] = card_doc['created_at'].isoformat()
+                await db.snack_cards.insert_one(card_doc)
     
     # Auto-update adherent status
     await refresh_adherent_status(sub["member_id"])
