@@ -31,6 +31,7 @@ export function EventsPage() {
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
+  const [deletingEvent, setDeletingEvent] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     date: '',
@@ -103,15 +104,15 @@ export function EventsPage() {
     setIsDialogOpen(true);
   };
 
-  const handleDelete = async (event) => {
-    if (window.confirm(`Supprimer l'événement "${event.name}" ?`)) {
-      try {
-        await api.deleteEvent(event.event_id);
-        toast.success('Événement supprimé');
-        loadData();
-      } catch (err) {
-        toast.error(err.message);
-      }
+  const handleDelete = async () => {
+    if (!deletingEvent) return;
+    try {
+      await api.deleteEvent(deletingEvent.event_id);
+      toast.success('Evenement supprime');
+      setDeletingEvent(null);
+      loadData();
+    } catch (err) {
+      toast.error(err.message);
     }
   };
 
@@ -268,7 +269,7 @@ export function EventsPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => handleDelete(event)}
+                      onClick={() => setDeletingEvent(event)}
                       data-testid={`delete-event-${event.event_id}`}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -403,6 +404,26 @@ export function EventsPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Event Confirmation */}
+      <Dialog open={!!deletingEvent} onOpenChange={(open) => !open && setDeletingEvent(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Supprimer l'evenement</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Etes-vous sur de vouloir supprimer <strong>{deletingEvent?.name}</strong> ? Cette action est irreversible.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingEvent(null)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} data-testid="confirm-delete-event-btn">
+              Supprimer
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

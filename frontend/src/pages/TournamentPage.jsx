@@ -55,10 +55,11 @@ export function TournamentPage() {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [selectedFormat, setSelectedFormat] = useState('suisse');
+  const [selectedFormat, setSelectedFormat] = useState('');
   const [selectedParticipants, setSelectedParticipants] = useState([]);
   const [settings, setSettings] = useState(null);
   const [activeTab, setActiveTab] = useState('matches');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Match result dialog
   const [resultDialogOpen, setResultDialogOpen] = useState(false);
@@ -76,6 +77,13 @@ export function TournamentPage() {
       setEvent(eventData);
       setTournament(tournamentData);
       setSettings(settingsData);
+
+      // Pre-select format from event
+      if (eventData?.format) {
+        setSelectedFormat(eventData.format);
+      } else if (!selectedFormat) {
+        setSelectedFormat(settingsData?.event_formats?.[0] || 'suisse');
+      }
 
       // Build eligible participants from event participations
       if (!tournamentData && eventData?.participations) {
@@ -127,11 +135,12 @@ export function TournamentPage() {
   };
 
   const handleDeleteTournament = async () => {
-    if (!tournament || !window.confirm('Supprimer ce tournoi ? Cette action est irréversible.')) return;
+    if (!tournament) return;
     try {
       await api.deleteTournament(tournament.tournament_id);
-      toast.success('Tournoi supprimé');
+      toast.success('Tournoi supprime');
       setTournament(null);
+      setDeleteDialogOpen(false);
       loadData();
     } catch (err) {
       toast.error(err.message);
@@ -236,7 +245,7 @@ export function TournamentPage() {
           </p>
         </div>
         {tournament && hasPermission('events:delete') && (
-          <Button variant="destructive" size="sm" onClick={handleDeleteTournament} data-testid="delete-tournament-btn">
+          <Button variant="destructive" size="sm" onClick={() => setDeleteDialogOpen(true)} data-testid="delete-tournament-btn">
             <Trash2 className="h-4 w-4 mr-1" />
             Supprimer
           </Button>
@@ -431,7 +440,9 @@ export function TournamentPage() {
                             "text-sm font-medium truncate",
                             match.winner_id === match.player2_id && "text-success font-bold"
                           )}>
-                            {match.player2_name || 'BYE'}
+                            {match.player2_id 
+                              ? (match.player2_name || match.player2_id) 
+                              : 'BYE'}
                           </div>
                         </div>
                         <div className="shrink-0">
@@ -587,6 +598,26 @@ export function TournamentPage() {
               </DialogFooter>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Tournament Confirmation */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Supprimer le tournoi</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Supprimer ce tournoi ? Tous les matchs et resultats seront perdus. Cette action est irreversible.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteTournament} data-testid="confirm-delete-tournament-btn">
+              Supprimer
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

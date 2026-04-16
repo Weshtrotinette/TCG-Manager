@@ -14,11 +14,15 @@ Application web interne de gestion d'une association de tournois TCG pour ~150 j
 - [x] Auto-status adherents: nouveau -> essai -> non_a_jour -> actif
 - [x] Status non gere pour non-adherents
 
-### Events & Tournaments (DONE)
+### Events & Tournaments (DONE - Updated 2026-04-16)
 - [x] Event CRUD, dropdown Type/Format (configurable Settings)
 - [x] Tournament: Swiss (Buchholz), Single Elim (bracket), Round Robin (circle)
 - [x] Participants filtres: present + paye uniquement
 - [x] Searchable member dropdown dans event detail
+- [x] Format du tournoi preselectionne depuis le format de l'evenement
+- [x] BYE affiche uniquement quand player2_id est null (pas sur nom vide)
+- [x] Suppression evenement via dialogue de confirmation UI
+- [x] Suppression tournoi en cours via dialogue de confirmation UI
 
 ### Cotisations (DONE)
 - [x] Tableau par saison, vide a chaque nouvelle saison
@@ -37,12 +41,12 @@ Application web interne de gestion d'une association de tournois TCG pour ~150 j
 ### Products & POS (DONE - Updated 2026-04-16)
 - [x] Categories dynamiques avec sous-categories (dict schema)
 - [x] Upload photo produit (JPG/PNG/WebP/GIF, max 5Mo)
-- [x] Suppression photo produit (bouton X dans dialogue edition)
+- [x] Suppression photo produit
+- [x] Suppression de produits avec confirmation
 - [x] Photos visibles dans le tableau produits et en caisse
 - [x] POS: regroupement par sous-categorie (ex: BOISSONS, SNACK)
 - [x] Whitelist sous-categories visibles en caisse (Parametres > Caisse)
 - [x] Modes de paiement dynamiques en caisse (depuis Parametres)
-- [x] Suppression de produits avec confirmation
 
 ### Settings (DONE - Updated 2026-04-16)
 - [x] Reorganisation avec 6 onglets: General, Paiements, Produits, Caisse, Evenements, Depenses
@@ -53,6 +57,7 @@ Application web interne de gestion d'une association de tournois TCG pour ~150 j
 - [x] Dark/Light mode, Swiss design
 - [x] Sidebar retractable tablette
 - [x] PWA (Progressive Web App)
+- [x] Dialogues de confirmation UI (pas de window.confirm)
 
 ## Backlog (P2)
 - [ ] Portail membre self-service
@@ -62,18 +67,3 @@ Application web interne de gestion d'une association de tournois TCG pour ~150 j
 - [ ] Upload justificatifs
 - [ ] Rapprochement de caisse
 - [ ] Refactoring server.py -> routers
-
-## Technical Architecture
-- Frontend: React.js, Tailwind, Shadcn UI, PWA
-- Backend: FastAPI (server.py ~3200 lines)
-- Database: MongoDB
-- Auth: Emergent Google OAuth + JWT
-- File Storage: /app/backend/uploads/products/ served via /api/uploads/
-
-## API Endpoints (Products)
-- GET /api/products - List products
-- POST /api/products - Create product
-- PUT /api/products/{id} - Update product
-- DELETE /api/products/{id} - Delete product
-- POST /api/products/{id}/upload-image - Upload product image
-- DELETE /api/products/{id}/image - Delete product image
