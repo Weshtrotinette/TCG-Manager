@@ -335,6 +335,10 @@ class ApiClient {
     return this.request(`/members/${memberId}/snack-cards`, { method: 'DELETE' });
   }
 
+  createSnackCardDirect(memberId) {
+    return this.request(`/snack-cards?member_id=${memberId}`, { method: 'POST' });
+  }
+
   resetFinancialData() {
     return this.request('/admin/reset-financial-data', { method: 'POST' });
   }

@@ -2483,6 +2483,32 @@ async def remove_member_snack_cards(member_id: str, user: User = Depends(get_cur
     result = await db.snack_cards.delete_many({"member_id": member_id})
     return {"message": f"{result.deleted_count} carte(s) snack supprimee(s)"}
 
+@api_router.post("/snack-cards")
+async def create_snack_card_direct(member_id: str, user: User = Depends(get_current_user)):
+    """Create a snack card for a member (POS purchase)"""
+    member = await db.members.find_one({"member_id": member_id}, {"_id": 0})
+    if not member:
+        raise HTTPException(status_code=404, detail="Membre non trouve")
+    
+    settings = await db.settings.find_one({"settings_id": "main_settings"}, {"_id": 0})
+    snack_value = settings.get("carte_snack_value", 12.0) if settings else 12.0
+    season = settings.get("current_season", "") if settings else ""
+    
+    card = SnackCard(
+        member_id=member_id,
+        balance=snack_value,
+        initial_value=snack_value,
+        season=season
+    )
+    card_doc = card.model_dump()
+    card_doc['created_at'] = card_doc['created_at'].isoformat()
+    await db.snack_cards.insert_one(card_doc)
+    
+    member_name = f"{member.get('first_name', '')} {member.get('last_name', '')}"
+    await log_action(user.user_id, "create", "snack_cards", card.card_id, f"Carte snack creee pour {member_name} ({snack_value}EUR)")
+    
+    return {"card_id": card.card_id, "balance": snack_value, "message": f"Carte snack de {snack_value}EUR attribuee"}
+
 @api_router.post("/admin/reset-financial-data")
 async def reset_financial_data(user: User = Depends(get_current_user)):
     """Reset all financial data - sales, expenses, subscriptions, archives, cards"""

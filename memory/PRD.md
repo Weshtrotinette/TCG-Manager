@@ -25,20 +25,21 @@ Application web interne de gestion d'une association de tournois TCG pour ~150 j
 - [x] Attribue/cree au paiement cotisation
 - [x] Pack utilisable dans detail evenement
 - [x] Carte snack utilisable en caisse rapide
-- [x] Desaffectation depuis la page membres (clic sur badge)
+- [x] Carte snack achetable en caisse: popup attribution apres paiement
+- [x] Desaffectation depuis la page membres
 
 ### Products & POS (DONE)
 - [x] Categories/sous-categories, photos, whitelist POS
 - [x] Dropdown carte snack en caisse
+- [x] Attribution carte snack post-achat via popup membre
 
 ### Settings (DONE)
 - [x] 6 onglets, Pack/Snack prix ajustables
 - [x] Date renouvellement saison, cartes definitives/saisonnieres
-- [x] Bouton reinitialisation donnees financieres (zone danger)
+- [x] Bouton reinitialisation donnees financieres
 
 ### Finance (DONE)
 - [x] POS, Ventes, Depenses, Dashboard, Rapports
-- [x] Suppression depenses via dialogue UI (fix window.confirm)
 
 ### UI (DONE)
 - [x] Dark/Light mode, PWA, dialogues confirmation UI partout

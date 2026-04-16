@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { formatCurrency, cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
 import { 
   Select, 
   SelectContent, 
@@ -10,6 +11,13 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '../components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '../components/ui/dialog';
 import { ShoppingCart, Plus, Minus, Trash2, CreditCard, Banknote, X, Check, Package } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -18,6 +26,7 @@ export function POSPage() {
   const [products, setProducts] = useState([]);
   const [settings, setSettings] = useState(null);
   const [events, setEvents] = useState([]);
+  const [members, setMembers] = useState([]);
   const [snackCards, setSnackCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState([]);
@@ -25,6 +34,12 @@ export function POSPage() {
   const [selectedSnackCard, setSelectedSnackCard] = useState('none');
   const [paymentMethod, setPaymentMethod] = useState('especes');
   const [processing, setProcessing] = useState(false);
+  
+  // Snack card assignment after purchase
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [pendingSnackCount, setPendingSnackCount] = useState(0);
+  const [assignSearch, setAssignSearch] = useState('');
+  const [assignedCount, setAssignedCount] = useState(0);
 
   useEffect(() => {
     loadData();
@@ -33,15 +48,17 @@ export function POSPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [productsData, eventsData, settingsData, snackCardsData] = await Promise.all([
+      const [productsData, eventsData, settingsData, snackCardsData, membersData] = await Promise.all([
         api.getProducts({ active_only: true }),
         api.getEvents({ upcoming: true }),
         api.getSettings(),
         api.getSnackCards(true),
+        api.getMembers(),
       ]);
       setProducts(productsData);
       setEvents(eventsData);
       setSnackCards(snackCardsData);
+      setMembers(membersData.filter(m => m.status !== 'archive' && (m.member_type || 'adherent') === 'adherent'));
       
       // Normalize settings
       if (Array.isArray(settingsData.product_categories)) {
@@ -132,15 +149,54 @@ export function POSPage() {
         comment: selectedCard ? `Carte snack: -${formatCurrency(snackDeduction)}${remainingToPay > 0 ? ` + ${paymentMethod}: ${formatCurrency(remainingToPay)}` : ''}` : null,
       });
       
+      // Check if cart contains snack card products
+      const snackCardItems = cart.filter(item => {
+        const product = products.find(p => p.product_id === item.product_id);
+        return product && (
+          product.name.toLowerCase().includes('carte snack') ||
+          (product.subcategory && product.subcategory.toLowerCase() === 'carte snack')
+        );
+      });
+      const totalSnackCards = snackCardItems.reduce((sum, item) => sum + item.quantity, 0);
+      
       toast.success(`Vente enregistree: ${formatCurrency(cartTotal)}`);
       setCart([]);
       setSelectedSnackCard('none');
+      
+      if (totalSnackCards > 0) {
+        // Open assignment dialog
+        setPendingSnackCount(totalSnackCards);
+        setAssignedCount(0);
+        setAssignSearch('');
+        setAssignDialogOpen(true);
+      }
+      
       loadData();
     } catch (err) {
       toast.error(err.message);
     } finally {
       setProcessing(false);
     }
+  };
+
+  const handleAssignSnackCard = async (memberId) => {
+    try {
+      const result = await api.createSnackCardDirect(memberId);
+      toast.success(result.message);
+      const newAssigned = assignedCount + 1;
+      setAssignedCount(newAssigned);
+      if (newAssigned >= pendingSnackCount) {
+        setAssignDialogOpen(false);
+        loadData();
+      }
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const closeAssignDialog = () => {
+    setAssignDialogOpen(false);
+    if (assignedCount > 0) loadData();
   };
 
   // Group products by subcategory, filtered by POS whitelist
@@ -430,6 +486,57 @@ export function POSPage() {
           </Button>
         </div>
       </div>
+
+      {/* Assign Snack Card Dialog */}
+      <Dialog open={assignDialogOpen} onOpenChange={(open) => { if (!open) closeAssignDialog(); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Attribuer la carte snack {pendingSnackCount > 1 ? `(${assignedCount + 1}/${pendingSnackCount})` : ''}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Selectionnez le membre adherent a qui attribuer la carte snack de {formatCurrency(settings?.carte_snack_value || 12)}.
+          </p>
+          <Input
+            placeholder="Rechercher un membre..."
+            value={assignSearch}
+            onChange={(e) => setAssignSearch(e.target.value)}
+            autoFocus
+            data-testid="assign-snack-search"
+          />
+          <div className="max-h-60 overflow-y-auto border border-border rounded-md">
+            {members
+              .filter(m => {
+                if (!assignSearch) return true;
+                const q = assignSearch.toLowerCase();
+                return `${m.first_name} ${m.last_name} ${m.pseudo || ''}`.toLowerCase().includes(q);
+              })
+              .map(member => (
+                <button
+                  key={member.member_id}
+                  type="button"
+                  className="w-full text-left px-4 py-3 text-sm hover:bg-muted transition-colors border-b border-border last:border-b-0 flex items-center justify-between"
+                  onClick={() => handleAssignSnackCard(member.member_id)}
+                  data-testid={`assign-snack-${member.member_id}`}
+                >
+                  <div>
+                    <span className="font-medium">{member.first_name} {member.last_name}</span>
+                    {member.pseudo && <span className="ml-1 text-muted-foreground">({member.pseudo})</span>}
+                  </div>
+                  {member.snack_card_balance > 0 && (
+                    <span className="text-xs text-success">{formatCurrency(member.snack_card_balance)}</span>
+                  )}
+                </button>
+              ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeAssignDialog} data-testid="skip-assign-btn">
+              {assignedCount > 0 ? 'Terminer' : 'Passer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
