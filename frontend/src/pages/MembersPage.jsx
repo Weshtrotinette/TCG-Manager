@@ -28,12 +28,12 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { 
-  Plus, Search, AlertTriangle, Filter, Edit, Archive, ArchiveRestore, Ticket, UtensilsCrossed
+  Plus, Search, AlertTriangle, Filter, Edit, Archive, ArchiveRestore, Ticket, UtensilsCrossed, X
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function MembersPage() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, hasRole } = useAuth();
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,6 +41,7 @@ export function MembersPage() {
   const [typeFilter, setTypeFilter] = useState('all');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingMember, setEditingMember] = useState(null);
+  const [cardAction, setCardAction] = useState(null);
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -152,6 +153,25 @@ export function MembersPage() {
   const openNewMemberDialog = () => {
     resetForm();
     setIsDialogOpen(true);
+  };
+
+  const canManageCards = hasRole('president') || hasPermission('subscriptions:update');
+
+  const handleRemoveCard = async () => {
+    if (!cardAction) return;
+    try {
+      if (cardAction.type === 'pack') {
+        await api.removePackTournois(cardAction.member.member_id);
+        toast.success('Pack tournois retire');
+      } else {
+        await api.removeMemberSnackCards(cardAction.member.member_id);
+        toast.success('Carte(s) snack supprimee(s)');
+      }
+      setCardAction(null);
+      loadMembers();
+    } catch (err) {
+      toast.error(err.message);
+    }
   };
 
   const getStatusBadge = (status, trialAlert) => {
@@ -288,20 +308,44 @@ export function MembersPage() {
                     </TableCell>
                     <TableCell className="text-center">
                       {member.has_pack_tournois ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded" data-testid={`pack-${member.member_id}`}>
-                          <Ticket className="h-3 w-3" />
-                          1
-                        </span>
+                        canManageCards ? (
+                          <button
+                            onClick={() => setCardAction({ type: 'pack', member })}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded hover:bg-primary/20 transition-colors cursor-pointer"
+                            data-testid={`pack-${member.member_id}`}
+                            title="Cliquer pour retirer"
+                          >
+                            <Ticket className="h-3 w-3" />
+                            1
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded">
+                            <Ticket className="h-3 w-3" />
+                            1
+                          </span>
+                        )
                       ) : (
                         <span className="text-xs text-muted-foreground">-</span>
                       )}
                     </TableCell>
                     <TableCell className="text-center">
                       {member.snack_card_balance > 0 ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-success bg-success/10 px-2 py-0.5 rounded" data-testid={`snack-${member.member_id}`}>
-                          <UtensilsCrossed className="h-3 w-3" />
-                          {formatCurrency(member.snack_card_balance)}
-                        </span>
+                        canManageCards ? (
+                          <button
+                            onClick={() => setCardAction({ type: 'snack', member })}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-success bg-success/10 px-2 py-0.5 rounded hover:bg-success/20 transition-colors cursor-pointer"
+                            data-testid={`snack-${member.member_id}`}
+                            title="Cliquer pour retirer"
+                          >
+                            <UtensilsCrossed className="h-3 w-3" />
+                            {formatCurrency(member.snack_card_balance)}
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-success bg-success/10 px-2 py-0.5 rounded">
+                            <UtensilsCrossed className="h-3 w-3" />
+                            {formatCurrency(member.snack_card_balance)}
+                          </span>
+                        )
                       ) : (
                         <span className="text-xs text-muted-foreground">-</span>
                       )}
@@ -453,6 +497,27 @@ export function MembersPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Card Removal Confirmation */}
+      <Dialog open={!!cardAction} onOpenChange={(open) => !open && setCardAction(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              {cardAction?.type === 'pack' ? 'Retirer le Pack Tournois' : 'Retirer la Carte Snack'}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {cardAction?.type === 'pack'
+              ? <>Retirer le pack tournois de <strong>{cardAction?.member?.first_name} {cardAction?.member?.last_name}</strong> ?</>
+              : <>Supprimer toutes les cartes snack de <strong>{cardAction?.member?.first_name} {cardAction?.member?.last_name}</strong> ({formatCurrency(cardAction?.member?.snack_card_balance || 0)} de solde) ?</>
+            }
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCardAction(null)}>Annuler</Button>
+            <Button variant="destructive" onClick={handleRemoveCard} data-testid="confirm-remove-card-btn">Retirer</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -38,6 +38,7 @@ export function ExpensesPage() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
+  const [deletingExpense, setDeletingExpense] = useState(null);
   const [formData, setFormData] = useState({
     amount: 0,
     category: 'divers',
@@ -118,15 +119,15 @@ export function ExpensesPage() {
     setIsDialogOpen(true);
   };
 
-  const handleDelete = async (expense) => {
-    if (window.confirm('Supprimer cette dépense ?')) {
-      try {
-        await api.deleteExpense(expense.expense_id);
-        toast.success('Dépense supprimée');
-        loadData();
-      } catch (err) {
-        toast.error(err.message);
-      }
+  const handleDelete = async () => {
+    if (!deletingExpense) return;
+    try {
+      await api.deleteExpense(deletingExpense.expense_id);
+      toast.success('Depense supprimee');
+      setDeletingExpense(null);
+      loadData();
+    } catch (err) {
+      toast.error(err.message);
     }
   };
 
@@ -255,7 +256,7 @@ export function ExpensesPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDelete(expense)}
+                            onClick={() => setDeletingExpense(expense)}
                             data-testid={`delete-expense-${expense.expense_id}`}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -398,6 +399,22 @@ export function ExpensesPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Expense Confirmation */}
+      <Dialog open={!!deletingExpense} onOpenChange={(open) => !open && setDeletingExpense(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Supprimer la depense</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Supprimer la depense <strong>{deletingExpense?.description}</strong> ({formatCurrency(deletingExpense?.amount || 0)}) ?
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingExpense(null)}>Annuler</Button>
+            <Button variant="destructive" onClick={handleDelete} data-testid="confirm-delete-expense-btn">Supprimer</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -7,7 +7,14 @@ import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
 import { Checkbox } from '../components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
-import { Save, Plus, X, Settings2, CreditCard, Package, ShoppingCart, Calendar, Receipt } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '../components/ui/dialog';
+import { Save, Plus, X, Settings2, CreditCard, Package, ShoppingCart, Calendar, Receipt, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function SettingsPage() {
@@ -15,6 +22,8 @@ export function SettingsPage() {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [newPaymentMethod, setNewPaymentMethod] = useState('');
   const [newExpenseCategory, setNewExpenseCategory] = useState('');
   const [newProductCategory, setNewProductCategory] = useState('');
@@ -78,6 +87,19 @@ export function SettingsPage() {
       toast.error(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleResetFinancial = async () => {
+    try {
+      setResetting(true);
+      const result = await api.resetFinancialData();
+      toast.success(result.message);
+      setResetDialogOpen(false);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -382,6 +404,26 @@ export function SettingsPage() {
               />
             </div>
           </div>
+
+          {/* Danger Zone */}
+          {hasRole('president') && (
+            <div className="swiss-card border-destructive/30 space-y-4">
+              <h2 className="text-lg font-bold text-destructive flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5" />
+                Zone de reinitialisation
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Supprime toutes les donnees financieres : ventes, depenses, cotisations, archives, cartes snack, packs tournois et mouvements de stock. Les produits, membres et evenements sont conserves.
+              </p>
+              <Button
+                variant="destructive"
+                onClick={() => setResetDialogOpen(true)}
+                data-testid="reset-financial-btn"
+              >
+                Reinitialiser les donnees financieres
+              </Button>
+            </div>
+          )}
         </TabsContent>
 
         {/* === PAYMENTS === */}
@@ -606,6 +648,36 @@ export function SettingsPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Reset Financial Data Dialog */}
+      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-destructive flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              Reinitialiser les donnees financieres
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="font-medium">Cette action est irreversible et va supprimer :</p>
+            <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+              <li>Toutes les <strong>ventes</strong></li>
+              <li>Toutes les <strong>depenses</strong></li>
+              <li>Toutes les <strong>cotisations</strong> et leurs <strong>archives</strong></li>
+              <li>Toutes les <strong>cartes snack</strong></li>
+              <li>Tous les <strong>packs tournois</strong></li>
+              <li>Tous les <strong>mouvements de stock</strong></li>
+            </ul>
+            <p className="text-success font-medium">Conserve : produits, stocks, membres, evenements, parametres.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetDialogOpen(false)}>Annuler</Button>
+            <Button variant="destructive" onClick={handleResetFinancial} disabled={resetting} data-testid="confirm-reset-financial-btn">
+              {resetting ? 'Reinitialisation...' : 'Confirmer la reinitialisation'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -2471,6 +2471,54 @@ async def use_pack_tournois(member_id: str, user: User = Depends(get_current_use
     await db.members.update_one({"member_id": member_id}, {"$set": {"has_pack_tournois": False}})
     return {"message": "Pack tournois utilise"}
 
+@api_router.delete("/members/{member_id}/pack-tournois")
+async def remove_pack_tournois(member_id: str, user: User = Depends(get_current_user)):
+    """Remove pack tournois from a member (admin correction)"""
+    await db.members.update_one({"member_id": member_id}, {"$set": {"has_pack_tournois": False}})
+    return {"message": "Pack tournois retire"}
+
+@api_router.delete("/members/{member_id}/snack-cards")
+async def remove_member_snack_cards(member_id: str, user: User = Depends(get_current_user)):
+    """Remove all snack cards from a member (admin correction)"""
+    result = await db.snack_cards.delete_many({"member_id": member_id})
+    return {"message": f"{result.deleted_count} carte(s) snack supprimee(s)"}
+
+@api_router.post("/admin/reset-financial-data")
+async def reset_financial_data(user: User = Depends(get_current_user)):
+    """Reset all financial data - sales, expenses, subscriptions, archives, cards"""
+    if "president" not in user.roles:
+        raise HTTPException(status_code=403, detail="Seul le president peut effectuer cette action")
+    
+    sales_count = await db.sales.count_documents({})
+    expenses_count = await db.expenses.count_documents({})
+    subs_count = await db.subscriptions.count_documents({})
+    archives_count = await db.subscription_archives.count_documents({})
+    cards_count = await db.snack_cards.count_documents({})
+    movements_count = await db.stock_movements.count_documents({})
+    
+    await db.sales.delete_many({})
+    await db.expenses.delete_many({})
+    await db.subscriptions.delete_many({})
+    await db.subscription_archives.delete_many({})
+    await db.snack_cards.delete_many({})
+    await db.stock_movements.delete_many({})
+    await db.members.update_many({}, {"$set": {"has_pack_tournois": False}})
+    
+    await log_action(user.user_id, "delete", "admin", "reset_financial", 
+        f"Reset financier: {sales_count} ventes, {expenses_count} depenses, {subs_count} cotisations, {archives_count} archives, {cards_count} cartes, {movements_count} mouvements")
+    
+    return {
+        "message": "Donnees financieres reinitialisees",
+        "deleted": {
+            "sales": sales_count,
+            "expenses": expenses_count,
+            "subscriptions": subs_count,
+            "archives": archives_count,
+            "snack_cards": cards_count,
+            "stock_movements": movements_count
+        }
+    }
+
 
 # =============================================================================
 # AUDIT LOG ROUTES

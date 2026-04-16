@@ -326,6 +326,18 @@ class ApiClient {
   usePackTournois(memberId) {
     return this.request(`/members/${memberId}/use-pack-tournois`, { method: 'POST' });
   }
+
+  removePackTournois(memberId) {
+    return this.request(`/members/${memberId}/pack-tournois`, { method: 'DELETE' });
+  }
+
+  removeMemberSnackCards(memberId) {
+    return this.request(`/members/${memberId}/snack-cards`, { method: 'DELETE' });
+  }
+
+  resetFinancialData() {
+    return this.request('/admin/reset-financial-data', { method: 'POST' });
+  }
 }
 
 export const api = new ApiClient();
