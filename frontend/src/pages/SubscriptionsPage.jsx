@@ -29,6 +29,7 @@ import {
 } from '../components/ui/table';
 import { Plus, Filter, Euro, ArchiveRestore, CalendarPlus, ChevronLeft, Edit, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Checkbox } from '../components/ui/checkbox';
 
 export function SubscriptionsPage() {
   const { hasPermission } = useAuth();
@@ -56,6 +57,8 @@ export function SubscriptionsPage() {
     member_id: '',
     season: '',
     amount_due: 0,
+    includes_pack_tournois: false,
+    includes_carte_snack: false,
   });
   const [paymentData, setPaymentData] = useState({
     amount: 0,
@@ -102,16 +105,27 @@ export function SubscriptionsPage() {
   const handleCreateSubscription = async (e) => {
     e.preventDefault();
     try {
+      // Compute total amount from settings
+      const base = settings?.annual_subscription_amount || 0;
+      const packPrice = newSubData.includes_pack_tournois ? (settings?.pack_tournois_price || 5) : 0;
+      const snackPrice = newSubData.includes_carte_snack ? (settings?.carte_snack_price || 10) : 0;
+      const totalDue = base + packPrice + snackPrice;
+      
       await api.createSubscription({
-        ...newSubData,
-        amount_due: parseFloat(newSubData.amount_due),
+        member_id: newSubData.member_id,
+        season: newSubData.season,
+        amount_due: totalDue,
+        includes_pack_tournois: newSubData.includes_pack_tournois,
+        includes_carte_snack: newSubData.includes_carte_snack,
       });
-      toast.success('Cotisation créée');
+      toast.success('Cotisation creee');
       setIsNewSubDialogOpen(false);
       setNewSubData({
         member_id: '',
         season: settings?.current_season || '',
         amount_due: settings?.annual_subscription_amount || 0,
+        includes_pack_tournois: false,
+        includes_carte_snack: false,
       });
       setMemberSearch('');
       loadData();
@@ -175,11 +189,14 @@ export function SubscriptionsPage() {
     }
   };
 
-  const handleDeleteSubscription = async (sub) => {
-    if (!window.confirm(`Supprimer la cotisation de ${sub.member_name} ?`)) return;
+  const [deletingSub, setDeletingSub] = useState(null);
+
+  const handleDeleteSubscription = async () => {
+    if (!deletingSub) return;
     try {
-      await api.deleteSubscription(sub.subscription_id);
-      toast.success('Cotisation supprimée');
+      await api.deleteSubscription(deletingSub.subscription_id);
+      toast.success('Cotisation supprimee');
+      setDeletingSub(null);
       loadData();
     } catch (err) {
       toast.error(err.message);
@@ -389,7 +406,7 @@ export function SubscriptionsPage() {
                             variant="ghost"
                             size="icon"
                             className="text-destructive"
-                            onClick={() => handleDeleteSubscription(sub)}
+                            onClick={() => setDeletingSub(sub)}
                             data-testid={`delete-sub-${sub.subscription_id}`}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -452,18 +469,41 @@ export function SubscriptionsPage() {
                 )}
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="amount_due">Montant (€) *</Label>
-              <Input
-                id="amount_due"
-                type="number"
-                min="0"
-                step="0.01"
-                value={newSubData.amount_due}
-                onChange={(e) => setNewSubData({ ...newSubData, amount_due: e.target.value })}
-                required
-                data-testid="subscription-amount"
-              />
+            <div className="space-y-3 border border-border rounded-md p-3">
+              <div className="flex items-center justify-between text-sm">
+                <span>Cotisation annuelle</span>
+                <span className="font-mono font-bold">{formatCurrency(settings?.annual_subscription_amount || 0)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={newSubData.includes_pack_tournois}
+                    onCheckedChange={(checked) => setNewSubData({ ...newSubData, includes_pack_tournois: checked })}
+                    data-testid="sub-pack-tournois"
+                  />
+                  <span className="text-sm">Pack Tournois</span>
+                </label>
+                <span className="font-mono text-sm">{formatCurrency(settings?.pack_tournois_price || 5)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={newSubData.includes_carte_snack}
+                    onCheckedChange={(checked) => setNewSubData({ ...newSubData, includes_carte_snack: checked })}
+                    data-testid="sub-carte-snack"
+                  />
+                  <span className="text-sm">Carte Snack ({formatCurrency(settings?.carte_snack_value || 12)} de valeur)</span>
+                </label>
+                <span className="font-mono text-sm">{formatCurrency(settings?.carte_snack_price || 10)}</span>
+              </div>
+              <div className="border-t border-border pt-2 flex items-center justify-between font-bold">
+                <span>Total</span>
+                <span className="font-mono text-lg" data-testid="sub-total-amount">{formatCurrency(
+                  (settings?.annual_subscription_amount || 0) +
+                  (newSubData.includes_pack_tournois ? (settings?.pack_tournois_price || 5) : 0) +
+                  (newSubData.includes_carte_snack ? (settings?.carte_snack_price || 10) : 0)
+                )}</span>
+              </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setIsNewSubDialogOpen(false)}>
@@ -695,6 +735,22 @@ export function SubscriptionsPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Subscription Confirmation */}
+      <Dialog open={!!deletingSub} onOpenChange={(open) => !open && setDeletingSub(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Supprimer la cotisation</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Supprimer la cotisation de <strong>{deletingSub?.member_name}</strong> ?
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingSub(null)}>Annuler</Button>
+            <Button variant="destructive" onClick={handleDeleteSubscription} data-testid="confirm-delete-sub-btn">Supprimer</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

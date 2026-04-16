@@ -308,6 +308,24 @@ class ApiClient {
   deleteTournament(tournamentId) {
     return this.request(`/tournaments/${tournamentId}`, { method: 'DELETE' });
   }
+
+  // Snack Cards
+  getSnackCards(activeOnly = true) {
+    return this.request(`/snack-cards?active_only=${activeOnly}`);
+  }
+
+  deductSnackCard(cardId, amount) {
+    return this.request(`/snack-cards/${cardId}/deduct?amount=${amount}`, { method: 'POST' });
+  }
+
+  // Pack Tournois
+  getMemberPackTournois(memberId) {
+    return this.request(`/members/${memberId}/pack-tournois`);
+  }
+
+  usePackTournois(memberId) {
+    return this.request(`/members/${memberId}/use-pack-tournois`, { method: 'POST' });
+  }
 }
 
 export const api = new ApiClient();

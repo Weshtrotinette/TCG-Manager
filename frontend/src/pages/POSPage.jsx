@@ -18,9 +18,11 @@ export function POSPage() {
   const [products, setProducts] = useState([]);
   const [settings, setSettings] = useState(null);
   const [events, setEvents] = useState([]);
+  const [snackCards, setSnackCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState('none');
+  const [selectedSnackCard, setSelectedSnackCard] = useState('none');
   const [paymentMethod, setPaymentMethod] = useState('especes');
   const [processing, setProcessing] = useState(false);
 
@@ -31,13 +33,15 @@ export function POSPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [productsData, eventsData, settingsData] = await Promise.all([
+      const [productsData, eventsData, settingsData, snackCardsData] = await Promise.all([
         api.getProducts({ active_only: true }),
         api.getEvents({ upcoming: true }),
         api.getSettings(),
+        api.getSnackCards(true),
       ]);
       setProducts(productsData);
       setEvents(eventsData);
+      setSnackCards(snackCardsData);
       
       // Normalize settings
       if (Array.isArray(settingsData.product_categories)) {
@@ -98,6 +102,11 @@ export function POSPage() {
 
   const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
+  // Compute snack card deduction
+  const selectedCard = snackCards.find(c => c.card_id === selectedSnackCard);
+  const snackDeduction = selectedCard ? Math.min(selectedCard.balance, cartTotal) : 0;
+  const remainingToPay = cartTotal - snackDeduction;
+
   const handleCheckout = async () => {
     if (cart.length === 0) {
       toast.error('Le panier est vide');
@@ -106,18 +115,26 @@ export function POSPage() {
 
     try {
       setProcessing(true);
+      
+      // Deduct from snack card first if selected
+      if (selectedCard && snackDeduction > 0) {
+        await api.deductSnackCard(selectedCard.card_id, snackDeduction);
+      }
+      
       await api.createSale({
         items: cart.map(item => ({
           product_id: item.product_id,
           quantity: item.quantity,
         })),
-        payment_method: paymentMethod,
+        payment_method: snackDeduction >= cartTotal ? 'carte_snack' : paymentMethod,
         payment_status: 'paye',
         event_id: selectedEvent === 'none' ? null : selectedEvent,
+        comment: selectedCard ? `Carte snack: -${formatCurrency(snackDeduction)}${remainingToPay > 0 ? ` + ${paymentMethod}: ${formatCurrency(remainingToPay)}` : ''}` : null,
       });
       
       toast.success(`Vente enregistree: ${formatCurrency(cartTotal)}`);
       setCart([]);
+      setSelectedSnackCard('none');
       loadData();
     } catch (err) {
       toast.error(err.message);
@@ -343,24 +360,60 @@ export function POSPage() {
             </span>
           </div>
 
+          {/* Snack Card dropdown */}
+          {snackCards.length > 0 && (
+            <div className="space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Carte Snack</span>
+              <Select value={selectedSnackCard} onValueChange={setSelectedSnackCard}>
+                <SelectTrigger className="h-9 text-xs" data-testid="snack-card-select">
+                  <SelectValue placeholder="Aucune carte" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Aucune carte</SelectItem>
+                  {snackCards.map(card => (
+                    <SelectItem key={card.card_id} value={card.card_id}>
+                      {card.member_name} - {formatCurrency(card.balance)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedCard && snackDeduction > 0 && (
+                <div className="text-xs space-y-0.5 bg-muted/50 p-2 rounded">
+                  <div className="flex justify-between">
+                    <span>Carte snack</span>
+                    <span className="text-success font-bold">-{formatCurrency(snackDeduction)}</span>
+                  </div>
+                  {remainingToPay > 0 && (
+                    <div className="flex justify-between font-bold">
+                      <span>Reste a payer</span>
+                      <span>{formatCurrency(remainingToPay)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Dynamic payment methods */}
-          <div className="grid grid-cols-2 gap-2">
-            {paymentMethods.slice(0, 4).map(method => {
-              const Icon = paymentIcons[method] || CreditCard;
-              return (
-                <Button
-                  key={method}
-                  variant={paymentMethod === method ? 'default' : 'outline'}
-                  onClick={() => setPaymentMethod(method)}
-                  className="h-10 text-xs font-bold capitalize"
-                  data-testid={`payment-${method}`}
-                >
-                  <Icon className="h-3.5 w-3.5 mr-1" />
-                  {method}
-                </Button>
-              );
-            })}
-          </div>
+          {remainingToPay > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {paymentMethods.slice(0, 4).map(method => {
+                const Icon = paymentIcons[method] || CreditCard;
+                return (
+                  <Button
+                    key={method}
+                    variant={paymentMethod === method ? 'default' : 'outline'}
+                    onClick={() => setPaymentMethod(method)}
+                    className="h-10 text-xs font-bold capitalize"
+                    data-testid={`payment-${method}`}
+                  >
+                    <Icon className="h-3.5 w-3.5 mr-1" />
+                    {method}
+                  </Button>
+                );
+              })}
+            </div>
+          )}
 
           <Button
             className="w-full h-12 md:h-14 text-base md:text-lg font-bold"
@@ -373,7 +426,7 @@ export function POSPage() {
             ) : (
               <Check className="h-5 w-5 mr-2" />
             )}
-            Valider {formatCurrency(cartTotal)}
+            Valider {formatCurrency(remainingToPay > 0 ? remainingToPay : cartTotal)}
           </Button>
         </div>
       </div>

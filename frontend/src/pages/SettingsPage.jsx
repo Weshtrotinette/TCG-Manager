@@ -66,6 +66,12 @@ export function SettingsPage() {
         enable_trial_rule: settings.enable_trial_rule,
         enable_trial_alerts: settings.enable_trial_alerts,
         max_free_participations: settings.max_free_participations,
+        season_renewal_day: settings.season_renewal_day,
+        season_renewal_month: settings.season_renewal_month,
+        pack_tournois_price: settings.pack_tournois_price,
+        carte_snack_price: settings.carte_snack_price,
+        carte_snack_value: settings.carte_snack_value,
+        cards_are_permanent: settings.cards_are_permanent,
       });
       toast.success('Parametres enregistres');
     } catch (err) {
@@ -241,6 +247,93 @@ export function SettingsPage() {
                   data-testid="setting-subscription-amount"
                 />
               </div>
+            </div>
+          </div>
+
+          <div className="swiss-card space-y-6">
+            <h2 className="text-lg font-bold">Renouvellement de saison</h2>
+            <p className="text-sm text-muted-foreground">Date a laquelle la nouvelle saison commence automatiquement (jour/mois).</p>
+            <div className="grid grid-cols-2 gap-4 max-w-xs">
+              <div className="space-y-2">
+                <Label>Jour</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="31"
+                  value={settings?.season_renewal_day || 1}
+                  onChange={(e) => setSettings({ ...settings, season_renewal_day: parseInt(e.target.value) })}
+                  disabled={!canEdit}
+                  data-testid="setting-renewal-day"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Mois</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="12"
+                  value={settings?.season_renewal_month || 9}
+                  onChange={(e) => setSettings({ ...settings, season_renewal_month: parseInt(e.target.value) })}
+                  disabled={!canEdit}
+                  data-testid="setting-renewal-month"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="swiss-card space-y-6">
+            <h2 className="text-lg font-bold">Pack Tournois & Carte Snack</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <Label>Prix Pack Tournois (EUR)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={settings?.pack_tournois_price ?? 5}
+                  onChange={(e) => setSettings({ ...settings, pack_tournois_price: parseFloat(e.target.value) })}
+                  disabled={!canEdit}
+                  data-testid="setting-pack-tournois-price"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Prix Carte Snack (EUR)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={settings?.carte_snack_price ?? 10}
+                  onChange={(e) => setSettings({ ...settings, carte_snack_price: parseFloat(e.target.value) })}
+                  disabled={!canEdit}
+                  data-testid="setting-carte-snack-price"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Valeur reelle Carte Snack (EUR)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={settings?.carte_snack_value ?? 12}
+                  onChange={(e) => setSettings({ ...settings, carte_snack_value: parseFloat(e.target.value) })}
+                  disabled={!canEdit}
+                  data-testid="setting-carte-snack-value"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Cartes definitives</Label>
+                <p className="text-sm text-muted-foreground">
+                  Si active, les cartes restent valables jusqu'a epuisement. Sinon, elles expirent a la fin de saison.
+                </p>
+              </div>
+              <Switch
+                checked={settings?.cards_are_permanent || false}
+                onCheckedChange={(checked) => setSettings({ ...settings, cards_are_permanent: checked })}
+                disabled={!canEdit}
+                data-testid="setting-cards-permanent"
+              />
             </div>
           </div>
 

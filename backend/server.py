@@ -156,6 +156,8 @@ class Subscription(BaseModel):
     amount_due: float
     amount_paid: float = 0
     status: str = "non_payee"  # non_payee, partielle, payee
+    includes_pack_tournois: bool = False
+    includes_carte_snack: bool = False
     payments: List[Payment] = []
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -163,11 +165,23 @@ class SubscriptionCreate(BaseModel):
     member_id: str
     season: str
     amount_due: float
+    includes_pack_tournois: bool = False
+    includes_carte_snack: bool = False
 
 class PaymentCreate(BaseModel):
     amount: float
     payment_method: str
     comment: Optional[str] = None
+
+# --- Snack Card Model ---
+class SnackCard(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    card_id: str = Field(default_factory=lambda: f"snack_{uuid.uuid4().hex[:12]}")
+    member_id: str
+    balance: float
+    initial_value: float
+    season: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 # --- Event Models ---
 class Event(BaseModel):
@@ -356,6 +370,12 @@ class Settings(BaseModel):
     enable_trial_rule: bool = True
     enable_trial_alerts: bool = True
     current_season: str = "2024-2025"
+    season_renewal_day: int = 1
+    season_renewal_month: int = 9
+    pack_tournois_price: float = 5.0
+    carte_snack_price: float = 10.0
+    carte_snack_value: float = 12.0
+    cards_are_permanent: bool = False
     payment_methods: List[str] = ["especes", "carte", "virement", "paypal", "cheque", "autre"]
     member_statuses: List[str] = ["nouveau", "essai", "actif", "non_a_jour", "archive"]
     expense_categories: List[str] = ["consommables", "merchandising", "location", "lots", "materiel", "communication", "divers"]
@@ -370,6 +390,12 @@ class SettingsUpdate(BaseModel):
     enable_trial_rule: Optional[bool] = None
     enable_trial_alerts: Optional[bool] = None
     current_season: Optional[str] = None
+    season_renewal_day: Optional[int] = None
+    season_renewal_month: Optional[int] = None
+    pack_tournois_price: Optional[float] = None
+    carte_snack_price: Optional[float] = None
+    carte_snack_value: Optional[float] = None
+    cards_are_permanent: Optional[bool] = None
     payment_methods: Optional[List[str]] = None
     member_statuses: Optional[List[str]] = None
     expense_categories: Optional[List[str]] = None
@@ -1266,7 +1292,7 @@ async def create_subscription(sub_data: SubscriptionCreate, user: User = Depends
     # Check member exists
     member = await db.members.find_one({"member_id": sub_data.member_id}, {"_id": 0})
     if not member:
-        raise HTTPException(status_code=404, detail="Membre non trouvé")
+        raise HTTPException(status_code=404, detail="Membre non trouve")
     
     # Check for existing subscription in same season
     existing = await db.subscriptions.find_one({
@@ -1275,17 +1301,41 @@ async def create_subscription(sub_data: SubscriptionCreate, user: User = Depends
     }, {"_id": 0})
     
     if existing:
-        raise HTTPException(status_code=400, detail="Cotisation déjà existante pour cette saison")
+        raise HTTPException(status_code=400, detail="Cotisation deja existante pour cette saison")
+    
+    # Get settings for card values
+    settings = await db.settings.find_one({"settings_id": "main_settings"}, {"_id": 0})
     
     subscription = Subscription(**sub_data.model_dump())
     doc = subscription.model_dump()
     doc['created_at'] = doc['created_at'].isoformat()
     
     await db.subscriptions.insert_one(doc)
-    await log_action(user.user_id, "create", "subscriptions", subscription.subscription_id, 
-                     f"Cotisation créée pour {member['first_name']} {member['last_name']}")
     
-    return {"subscription_id": subscription.subscription_id, "message": "Cotisation créée"}
+    # If pack tournois included, flag the member
+    if sub_data.includes_pack_tournois:
+        await db.members.update_one(
+            {"member_id": sub_data.member_id},
+            {"$set": {"has_pack_tournois": True}}
+        )
+    
+    # If carte snack included, create a snack card
+    if sub_data.includes_carte_snack:
+        snack_value = settings.get("carte_snack_value", 12.0) if settings else 12.0
+        card = SnackCard(
+            member_id=sub_data.member_id,
+            balance=snack_value,
+            initial_value=snack_value,
+            season=sub_data.season
+        )
+        card_doc = card.model_dump()
+        card_doc['created_at'] = card_doc['created_at'].isoformat()
+        await db.snack_cards.insert_one(card_doc)
+    
+    await log_action(user.user_id, "create", "subscriptions", subscription.subscription_id, 
+                     f"Cotisation creee pour {member['first_name']} {member['last_name']}")
+    
+    return {"subscription_id": subscription.subscription_id, "message": "Cotisation creee"}
 
 @api_router.put("/subscriptions/{subscription_id}")
 async def update_subscription(subscription_id: str, user: User = Depends(get_current_user),
@@ -1412,8 +1462,19 @@ async def start_new_season(user: User = Depends(get_current_user)):
         {"$set": {"status": "non_a_jour"}}
     )
     
+    # Handle seasonal cards: if cards_are_permanent is False, remove unused pack_tournois and snack cards
+    if not settings.get("cards_are_permanent", False):
+        # Remove all pack tournois
+        await db.members.update_many(
+            {"has_pack_tournois": True},
+            {"$set": {"has_pack_tournois": False}}
+        )
+        # Remove snack cards with remaining balance (unused portion lost)
+        await db.snack_cards.delete_many({"season": old_season})
+        logger.info("Seasonal cards cleared (non-permanent)")
+    
     await log_action(user.user_id, "create", "season", new_season, 
-                     f"Nouvelle saison {new_season} - {len(current_subs)} cotisations archivées depuis {old_season}")
+                     f"Nouvelle saison {new_season} - {len(current_subs)} cotisations archivees depuis {old_season}")
     
     return {
         "message": f"Saison {new_season} démarrée",
@@ -1611,7 +1672,7 @@ async def add_participation(part_data: ParticipationCreate, user: User = Depends
 
 @api_router.put("/participations/{participation_id}")
 async def update_participation(participation_id: str, is_present: bool = None, entry_paid: bool = None, 
-                                payment_method: str = None, user: User = Depends(get_current_user)):
+                                payment_method: str = None, use_pack_tournois: bool = None, user: User = Depends(get_current_user)):
     """Update participation status"""
     update_data = {}
     if is_present is not None:
@@ -1620,9 +1681,20 @@ async def update_participation(participation_id: str, is_present: bool = None, e
         update_data["entry_paid"] = entry_paid
     if payment_method is not None:
         update_data["payment_method"] = payment_method
+    if use_pack_tournois is not None:
+        update_data["used_pack_tournois"] = use_pack_tournois
     
     if not update_data:
-        raise HTTPException(status_code=400, detail="Aucune donnée à mettre à jour")
+        raise HTTPException(status_code=400, detail="Aucune donnee a mettre a jour")
+    
+    # If using pack tournois, consume it from the member
+    if use_pack_tournois and entry_paid:
+        part = await db.participations.find_one({"participation_id": participation_id}, {"_id": 0})
+        if part:
+            member = await db.members.find_one({"member_id": part["member_id"]}, {"_id": 0})
+            if member and member.get("has_pack_tournois"):
+                await db.members.update_one({"member_id": part["member_id"]}, {"$set": {"has_pack_tournois": False}})
+                update_data["used_pack_tournois"] = True
     
     result = await db.participations.update_one(
         {"participation_id": participation_id},
@@ -1630,9 +1702,9 @@ async def update_participation(participation_id: str, is_present: bool = None, e
     )
     
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Participation non trouvée")
+        raise HTTPException(status_code=404, detail="Participation non trouvee")
     
-    return {"message": "Participation mise à jour"}
+    return {"message": "Participation mise a jour"}
 
 @api_router.delete("/participations/{participation_id}")
 async def remove_participation(participation_id: str, user: User = Depends(get_current_user)):
@@ -2324,6 +2396,61 @@ async def update_settings(settings_data: SettingsUpdate, user: User = Depends(ge
     
     await log_action(user.user_id, "update", "settings", "main_settings", "Paramètres mis à jour")
     return {"message": "Paramètres mis à jour"}
+
+
+# =============================================================================
+# SNACK CARD & PACK TOURNOIS ROUTES
+# =============================================================================
+
+@api_router.get("/snack-cards")
+async def list_snack_cards(active_only: bool = True, user: User = Depends(get_current_user)):
+    """List snack cards, optionally only active (balance > 0)"""
+    query = {}
+    if active_only:
+        query["balance"] = {"$gt": 0}
+    cards = await db.snack_cards.find(query, {"_id": 0}).to_list(5000)
+    # Enrich with member names
+    member_ids = list(set(c["member_id"] for c in cards))
+    members_list = await db.members.find({"member_id": {"$in": member_ids}}, {"_id": 0, "member_id": 1, "first_name": 1, "last_name": 1, "pseudo": 1}).to_list(500)
+    members_map = {m["member_id"]: f"{m['first_name']} {m['last_name']}" + (f" ({m['pseudo']})" if m.get('pseudo') else '') for m in members_list}
+    for c in cards:
+        c["member_name"] = members_map.get(c["member_id"], c["member_id"])
+    return cards
+
+@api_router.post("/snack-cards/{card_id}/deduct")
+async def deduct_snack_card(card_id: str, amount: float, user: User = Depends(get_current_user)):
+    """Deduct amount from a snack card"""
+    card = await db.snack_cards.find_one({"card_id": card_id}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Carte snack non trouvee")
+    if card["balance"] <= 0:
+        raise HTTPException(status_code=400, detail="Carte snack epuisee")
+    
+    deducted = min(amount, card["balance"])
+    new_balance = round(card["balance"] - deducted, 2)
+    await db.snack_cards.update_one({"card_id": card_id}, {"$set": {"balance": new_balance}})
+    
+    return {"deducted": deducted, "remaining": new_balance, "card_id": card_id}
+
+@api_router.get("/members/{member_id}/pack-tournois")
+async def get_member_pack_tournois(member_id: str, user: User = Depends(get_current_user)):
+    """Check if member has a pack tournois"""
+    member = await db.members.find_one({"member_id": member_id}, {"_id": 0, "member_id": 1, "has_pack_tournois": 1})
+    if not member:
+        raise HTTPException(status_code=404, detail="Membre non trouve")
+    return {"has_pack_tournois": member.get("has_pack_tournois", False)}
+
+@api_router.post("/members/{member_id}/use-pack-tournois")
+async def use_pack_tournois(member_id: str, user: User = Depends(get_current_user)):
+    """Consume a member's pack tournois"""
+    member = await db.members.find_one({"member_id": member_id}, {"_id": 0})
+    if not member:
+        raise HTTPException(status_code=404, detail="Membre non trouve")
+    if not member.get("has_pack_tournois"):
+        raise HTTPException(status_code=400, detail="Ce membre n'a pas de pack tournois")
+    
+    await db.members.update_one({"member_id": member_id}, {"$set": {"has_pack_tournois": False}})
+    return {"message": "Pack tournois utilise"}
 
 
 # =============================================================================
@@ -3062,6 +3189,18 @@ async def startup_event():
             update_fields["event_formats"] = ["suisse", "elimination_simple", "double_elimination", "round_robin", "poules_top_cut"]
         if "pos_visible_subcategories" not in settings:
             update_fields["pos_visible_subcategories"] = []
+        if "pack_tournois_price" not in settings:
+            update_fields["pack_tournois_price"] = 5.0
+        if "carte_snack_price" not in settings:
+            update_fields["carte_snack_price"] = 10.0
+        if "carte_snack_value" not in settings:
+            update_fields["carte_snack_value"] = 12.0
+        if "cards_are_permanent" not in settings:
+            update_fields["cards_are_permanent"] = False
+        if "season_renewal_day" not in settings:
+            update_fields["season_renewal_day"] = 1
+        if "season_renewal_month" not in settings:
+            update_fields["season_renewal_month"] = 9
         if update_fields:
             await db.settings.update_one({"settings_id": "main_settings"}, {"$set": update_fields})
             logger.info("Settings migrated with new fields")
