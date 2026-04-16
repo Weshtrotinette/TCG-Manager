@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
-import { formatDate, memberStatusLabels, memberTypeLabels, cn } from '../lib/utils';
+import { formatDate, formatCurrency, memberStatusLabels, memberTypeLabels, cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -28,7 +28,7 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { 
-  Plus, Search, AlertTriangle, Filter, Edit, Archive, ArchiveRestore
+  Plus, Search, AlertTriangle, Filter, Edit, Archive, ArchiveRestore, Ticket, UtensilsCrossed
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -259,15 +259,16 @@ export function MembersPage() {
                 <TableHead>Pseudo</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Statut</TableHead>
+                <TableHead className="text-center">Pack T.</TableHead>
+                <TableHead className="text-center">Carte Snack</TableHead>
                 <TableHead>Participations</TableHead>
-                <TableHead>Inscription</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredMembers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     Aucun membre trouvé
                   </TableCell>
                 </TableRow>
@@ -285,8 +286,27 @@ export function MembersPage() {
                         : <span className="text-xs text-muted-foreground">-</span>
                       }
                     </TableCell>
+                    <TableCell className="text-center">
+                      {member.has_pack_tournois ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-primary bg-primary/10 px-2 py-0.5 rounded" data-testid={`pack-${member.member_id}`}>
+                          <Ticket className="h-3 w-3" />
+                          1
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {member.snack_card_balance > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-success bg-success/10 px-2 py-0.5 rounded" data-testid={`snack-${member.member_id}`}>
+                          <UtensilsCrossed className="h-3 w-3" />
+                          {formatCurrency(member.snack_card_balance)}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
                     <TableCell>{member.participation_count || 0}</TableCell>
-                    <TableCell>{formatDate(member.membership_date) || formatDate(member.first_participation_date) || '-'}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         {hasPermission('members:update') && (

@@ -9,45 +9,44 @@ Application web interne de gestion d'une association de tournois TCG pour ~150 j
 - [x] Google OAuth (Emergent) + Email/Password + Whitelist
 - [x] RBAC: President, Tresorier, Organisateur, Lecture seule
 
-### Members (DONE)
+### Members (DONE - Updated 2026-04-16)
 - [x] Adherents vs Non-adherents, Auto-status
+- [x] Colonnes Pack Tournois et Carte Snack dans la liste membres
+- [x] Solde carte snack affiche en temps reel
 
-### Events & Tournaments (DONE)
+### Events & Tournaments (DONE - Updated 2026-04-16)
 - [x] Event CRUD, Tournament Swiss/RoundRobin/Elimination
-- [x] Format preselectionne, BYE fix, suppression via dialog
+- [x] Colonne "Pack T." dans le detail evenement
+- [x] Bouton "Utiliser Pack" pour les membres ayant un pack tournois
+- [x] "Pack utilise" affiche en vert quand consomme
 
-### Cotisations (DONE - Updated 2026-04-16)
-- [x] Montant fixe depuis les parametres (non editable)
-- [x] Checkbox Pack Tournois + Carte Snack lors de la creation
-- [x] Cartes attribuees UNIQUEMENT au paiement complet (pas a la creation)
-- [x] Saison, archives, paiements partiels
+### Cotisations (DONE)
+- [x] Montant fixe depuis les parametres
+- [x] Checkbox Pack Tournois + Carte Snack
+- [x] Cartes attribuees au paiement complet uniquement
 
-### Pack Tournois (NEW 2026-04-16)
-- [x] Attribue au membre quand cotisation payee (1 seul par membre)
-- [x] Utilisable lors du reglement d'un evenement
-- [x] Parametre: prix ajustable + definitif ou saisonnier
+### Pack Tournois (DONE)
+- [x] Attribue au paiement de cotisation (1 par membre)
+- [x] Utilisable via bouton dans le detail evenement
+- [x] Consomme le pack et marque la participation
 
-### Carte Snack (NEW 2026-04-16)
-- [x] Creee quand cotisation payee (prix 10EUR, valeur 12EUR par defaut)
-- [x] Membre peut avoir plusieurs cartes
-- [x] Utilisable en caisse rapide via dropdown membre
-- [x] Deduction partielle (reste paye par autre moyen)
-- [x] Parametre: prix/valeur ajustables + definitif ou saisonnier
+### Carte Snack (DONE)
+- [x] Creee au paiement de cotisation (multiples possibles)
+- [x] Dropdown en caisse rapide avec solde
+- [x] Deduction partielle, reste paye par autre moyen
 
-### Settings (DONE - Updated 2026-04-16)
-- [x] 6 onglets, auto-save listes
-- [x] Pack Tournois prix, Carte Snack prix/valeur, cartes definitives toggle
-- [x] Date renouvellement saison (jour/mois)
+### Settings (DONE)
+- [x] 6 onglets, Pack/Snack prix ajustables
+- [x] Cartes definitives ou saisonnieres
+- [x] Date renouvellement saison jour/mois
 
 ### Products & POS (DONE)
-- [x] Categories/sous-categories, photos, whitelist POS, paiements dynamiques
-- [x] Dropdown carte snack en caisse rapide
+- [x] Categories/sous-categories, photos, whitelist POS
 
 ### UI (DONE)
-- [x] Dark/Light mode, PWA, dialogues confirmation UI
+- [x] Dark/Light mode, PWA, dialogues confirmation
 
 ## Backlog (P2)
-- [ ] Pack tournois: utilisation dans EventDetailPage (checkbox lors du paiement inscription)
 - [ ] Portail membre self-service
 - [ ] Inscriptions en ligne
 - [ ] Paiement en ligne

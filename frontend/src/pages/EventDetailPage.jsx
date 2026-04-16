@@ -36,6 +36,7 @@ export function EventDetailPage() {
   const [isAddParticipantOpen, setIsAddParticipantOpen] = useState(false);
   const [selectedMemberId, setSelectedMemberId] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
+  const [packTournoisMap, setPackTournoisMap] = useState({});
 
   useEffect(() => {
     loadData();
@@ -50,6 +51,13 @@ export function EventDetailPage() {
       ]);
       setEvent(eventData);
       setMembers(membersData.filter(m => m.status !== 'archive'));
+      
+      // Build pack tournois map from members data
+      const ptMap = {};
+      membersData.forEach(m => {
+        if (m.has_pack_tournois) ptMap[m.member_id] = true;
+      });
+      setPackTournoisMap(ptMap);
     } catch (err) {
       toast.error('Erreur lors du chargement');
     } finally {
@@ -75,9 +83,33 @@ export function EventDetailPage() {
     }
   };
 
-  const handleUpdateParticipation = async (participationId, field, value) => {
+  const handleUpdateParticipation = async (participationId, field, value, extra = {}) => {
     try {
-      await api.updateParticipation(participationId, { [field]: value });
+      await api.updateParticipation(participationId, { [field]: value, ...extra });
+      loadData();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleToggleEntryPaid = async (part, checked) => {
+    // If checking entry_paid AND member has pack tournois, ask if they want to use it
+    if (checked && packTournoisMap[part.member_id] && !part.used_pack_tournois) {
+      const usePack = window.confirm 
+        ? false  // We'll use a different approach - always show checkbox
+        : false;
+      await handleUpdateParticipation(part.participation_id, 'entry_paid', true);
+    } else {
+      await handleUpdateParticipation(part.participation_id, 'entry_paid', checked);
+    }
+  };
+
+  const handleTogglePackTournois = async (part, useIt) => {
+    try {
+      await api.updateParticipation(part.participation_id, { 
+        entry_paid: true,
+        use_pack_tournois: useIt
+      });
       loadData();
     } catch (err) {
       toast.error(err.message);
@@ -191,14 +223,15 @@ export function EventDetailPage() {
               <TableHead>Participant</TableHead>
               <TableHead>Statut membre</TableHead>
               <TableHead className="text-center">Présent</TableHead>
-              <TableHead className="text-center">Inscription payée</TableHead>
+              <TableHead className="text-center">Inscription payee</TableHead>
+              <TableHead className="text-center">Pack T.</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {event.participations?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                   Aucun participant
                 </TableCell>
               </TableRow>
@@ -245,6 +278,25 @@ export function EventDetailPage() {
                       )
                     ) : (
                       <span className="text-xs text-muted-foreground">Gratuit</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    {event.entry_fee > 0 && packTournoisMap[part.member_id] && !part.used_pack_tournois ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs h-7"
+                        onClick={() => handleTogglePackTournois(part, true)}
+                        data-testid={`use-pack-${part.participation_id}`}
+                      >
+                        Utiliser Pack
+                      </Button>
+                    ) : part.used_pack_tournois ? (
+                      <span className="text-xs font-medium text-success" data-testid={`pack-used-${part.participation_id}`}>
+                        Pack utilise
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">-</span>
                     )}
                   </TableCell>
                   <TableCell className="text-right">

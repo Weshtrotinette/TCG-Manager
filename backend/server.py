@@ -1167,6 +1167,17 @@ async def list_members(
             elif count == max_free - 1:
                 member["trial_alert"] = "warning"
     
+    # Enrich with snack card balances
+    all_cards = await db.snack_cards.find({"balance": {"$gt": 0}}, {"_id": 0, "member_id": 1, "balance": 1}).to_list(5000)
+    snack_balances = {}
+    for c in all_cards:
+        snack_balances[c["member_id"]] = round(snack_balances.get(c["member_id"], 0) + c["balance"], 2)
+    
+    for member in members:
+        mid = member["member_id"]
+        member["snack_card_balance"] = snack_balances.get(mid, 0)
+        member["has_pack_tournois"] = member.get("has_pack_tournois", False)
+    
     return members
 
 @api_router.get("/members/{member_id}")
