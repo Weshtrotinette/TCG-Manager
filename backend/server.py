@@ -28,7 +28,7 @@ JWT_ALGORITHM = "HS256"
 # MongoDB connection
 import certifi
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url, tlsCAFile=certifi.where())
+client = AsyncIOMotorClient(mongo_url, tlsCAFile=certifi.where(), serverSelectionTimeoutMS=10000, connectTimeoutMS=10000)
 db = client[os.environ['DB_NAME']]
 
 # Create the main app
@@ -3267,156 +3267,143 @@ async def delete_tournament(tournament_id: str, user: User = Depends(get_current
 @app.on_event("startup")
 async def startup_event():
     """Initialize database with default data"""
-    # Initialize settings if not exists
-    settings = await db.settings.find_one({"settings_id": "main_settings"})
-    if not settings:
-        default_settings = Settings()
-        doc = default_settings.model_dump()
-        await db.settings.insert_one(doc)
-        logger.info("Default settings initialized")
-    else:
-        # Migrate: add new fields if missing
-        update_fields = {}
-        if "event_types" not in settings:
-            update_fields["event_types"] = ["tournoi", "ligue", "session_libre", "demonstration", "atelier"]
-        if "event_formats" not in settings:
-            update_fields["event_formats"] = ["suisse", "elimination_simple", "double_elimination", "round_robin", "poules_top_cut"]
-        if "pos_visible_subcategories" not in settings:
-            update_fields["pos_visible_subcategories"] = []
-        if "pack_tournois_price" not in settings:
-            update_fields["pack_tournois_price"] = 5.0
-        if "carte_snack_price" not in settings:
-            update_fields["carte_snack_price"] = 10.0
-        if "carte_snack_value" not in settings:
-            update_fields["carte_snack_value"] = 12.0
-        if "cards_are_permanent" not in settings:
-            update_fields["cards_are_permanent"] = False
-        if "season_renewal_day" not in settings:
-            update_fields["season_renewal_day"] = 1
-        if "season_renewal_month" not in settings:
-            update_fields["season_renewal_month"] = 9
-        if update_fields:
-            await db.settings.update_one({"settings_id": "main_settings"}, {"$set": update_fields})
-            logger.info("Settings migrated with new fields")
+    try:
+        # Initialize settings if not exists
+        settings = await db.settings.find_one({"settings_id": "main_settings"})
+        if not settings:
+            default_settings = Settings()
+            doc = default_settings.model_dump()
+            await db.settings.insert_one(doc)
+            logger.info("Default settings initialized")
+        else:
+            # Migrate: add new fields if missing
+            update_fields = {}
+            if "event_types" not in settings:
+                update_fields["event_types"] = ["tournoi", "ligue", "session_libre", "demonstration", "atelier"]
+            if "event_formats" not in settings:
+                update_fields["event_formats"] = ["suisse", "elimination_simple", "double_elimination", "round_robin", "poules_top_cut"]
+            if "pos_visible_subcategories" not in settings:
+                update_fields["pos_visible_subcategories"] = []
+            if "pack_tournois_price" not in settings:
+                update_fields["pack_tournois_price"] = 5.0
+            if "carte_snack_price" not in settings:
+                update_fields["carte_snack_price"] = 10.0
+            if "carte_snack_value" not in settings:
+                update_fields["carte_snack_value"] = 12.0
+            if "cards_are_permanent" not in settings:
+                update_fields["cards_are_permanent"] = False
+            if "season_renewal_day" not in settings:
+                update_fields["season_renewal_day"] = 1
+            if "season_renewal_month" not in settings:
+                update_fields["season_renewal_month"] = 9
+            if update_fields:
+                await db.settings.update_one({"settings_id": "main_settings"}, {"$set": update_fields})
+                logger.info("Settings migrated with new fields")
+            
+            # Migrate product_categories from array to dict if needed
+            if isinstance(settings.get("product_categories"), list):
+                cats_dict = {}
+                for cat in settings["product_categories"]:
+                    cats_dict[cat] = []
+                await db.settings.update_one({"settings_id": "main_settings"}, {"$set": {"product_categories": cats_dict}})
+                logger.info("Product categories migrated to dict format")
         
-        # Migrate product_categories from array to dict if needed
-        if isinstance(settings.get("product_categories"), list):
-            cats_dict = {}
-            for cat in settings["product_categories"]:
-                cats_dict[cat] = []
-            await db.settings.update_one({"settings_id": "main_settings"}, {"$set": {"product_categories": cats_dict}})
-            logger.info("Product categories migrated to dict format")
-    
-    # Initialize default roles if not exists
-    roles_count = await db.roles.count_documents({})
-    if roles_count == 0:
-        default_roles = [
-            {
-                "role_id": "role_president",
-                "name": "president",
-                "name_fr": "Président",
-                "description": "Accès complet à toutes les fonctionnalités",
-                "permissions": ["*"],  # All permissions
-                "is_system": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            },
-            {
-                "role_id": "role_tresorier",
-                "name": "tresorier",
-                "name_fr": "Trésorier",
-                "description": "Gestion financière, cotisations, dépenses",
-                "permissions": [
-                    "dashboard:read", "members:read", "members:update",
-                    "subscriptions:read", "subscriptions:create", "subscriptions:update",
-                    "sales:read", "sales:create", "sales:cancel",
-                    "expenses:read", "expenses:create", "expenses:update", "expenses:delete",
-                    "products:read", "products:update",
-                    "reports:read", "reports:export"
-                ],
-                "is_system": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            },
-            {
-                "role_id": "role_organisateur",
-                "name": "organisateur",
-                "name_fr": "Organisateur",
-                "description": "Gestion des événements et participations",
-                "permissions": [
-                    "dashboard:read", "members:read", "members:create", "members:update",
-                    "events:read", "events:create", "events:update",
-                    "participations:read", "participations:create", "participations:update", "participations:delete",
-                    "products:read", "sales:read", "sales:create"
-                ],
-                "is_system": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            },
-            {
-                "role_id": "role_lecture",
-                "name": "lecture_seule",
-                "name_fr": "Lecture seule",
-                "description": "Consultation uniquement",
-                "permissions": [
-                    "dashboard:read", "members:read", "events:read",
-                    "participations:read", "products:read", "sales:read",
-                    "expenses:read", "reports:read"
-                ],
-                "is_system": True,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
-        ]
-        await db.roles.insert_many(default_roles)
-        logger.info("Default roles initialized")
-    
-    # Initialize default permissions if not exists
-    perms_count = await db.permissions.count_documents({})
-    if perms_count == 0:
-        modules = [
-            ("dashboard", "Tableau de bord"),
-            ("members", "Membres"),
-            ("subscriptions", "Cotisations"),
-            ("events", "Événements"),
-            ("participations", "Participations"),
-            ("products", "Produits"),
-            ("sales", "Ventes"),
-            ("expenses", "Dépenses"),
-            ("reports", "Rapports"),
-            ("settings", "Paramètres"),
-            ("users", "Utilisateurs"),
-            ("roles", "Rôles"),
-            ("audit", "Audit")
-        ]
+        # Initialize default roles if not exists
+        roles_count = await db.roles.count_documents({})
+        if roles_count == 0:
+            default_roles = [
+                {
+                    "role_id": "role_president",
+                    "name": "president",
+                    "name_fr": "Président",
+                    "description": "Accès complet à toutes les fonctionnalités",
+                    "permissions": ["*"],
+                    "is_system": True,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                },
+                {
+                    "role_id": "role_tresorier",
+                    "name": "tresorier",
+                    "name_fr": "Trésorier",
+                    "description": "Gestion financière, cotisations, dépenses",
+                    "permissions": [
+                        "dashboard:read", "members:read", "members:update",
+                        "subscriptions:read", "subscriptions:create", "subscriptions:update",
+                        "sales:read", "sales:create", "sales:cancel",
+                        "expenses:read", "expenses:create", "expenses:update", "expenses:delete",
+                        "products:read", "products:update",
+                        "reports:read", "reports:export"
+                    ],
+                    "is_system": True,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                },
+                {
+                    "role_id": "role_organisateur",
+                    "name": "organisateur",
+                    "name_fr": "Organisateur",
+                    "description": "Gestion des événements et participations",
+                    "permissions": [
+                        "dashboard:read", "members:read", "members:create", "members:update",
+                        "events:read", "events:create", "events:update",
+                        "participations:read", "participations:create", "participations:update", "participations:delete",
+                        "products:read", "sales:read", "sales:create"
+                    ],
+                    "is_system": True,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                },
+                {
+                    "role_id": "role_lecture",
+                    "name": "lecture_seule",
+                    "name_fr": "Lecture seule",
+                    "description": "Consultation uniquement",
+                    "permissions": [
+                        "dashboard:read", "members:read", "events:read",
+                        "participations:read", "products:read", "sales:read",
+                        "expenses:read", "reports:read"
+                    ],
+                    "is_system": True,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+            ]
+            await db.roles.insert_many(default_roles)
+            logger.info("Default roles initialized")
         
-        actions = [
-            ("read", "Consulter"),
-            ("create", "Créer"),
-            ("update", "Modifier"),
-            ("delete", "Supprimer"),
-            ("export", "Exporter"),
-            ("cancel", "Annuler")
-        ]
-        
-        permissions = []
-        for mod_key, mod_name in modules:
-            for act_key, act_name in actions:
-                # Skip irrelevant combinations
-                if mod_key == "dashboard" and act_key != "read":
-                    continue
-                if mod_key == "reports" and act_key not in ["read", "export"]:
-                    continue
-                if mod_key == "audit" and act_key != "read":
-                    continue
-                if act_key == "cancel" and mod_key != "sales":
-                    continue
-                
-                permissions.append({
-                    "permission_id": f"perm_{mod_key}_{act_key}",
-                    "module": mod_key,
-                    "action": act_key,
-                    "name_fr": f"{act_name} {mod_name}"
-                })
-        
-        await db.permissions.insert_many(permissions)
-        logger.info("Default permissions initialized")
+        # Initialize default permissions if not exists
+        perms_count = await db.permissions.count_documents({})
+        if perms_count == 0:
+            modules = [
+                ("dashboard", "Tableau de bord"), ("members", "Membres"),
+                ("subscriptions", "Cotisations"), ("events", "Événements"),
+                ("participations", "Participations"), ("products", "Produits"),
+                ("sales", "Ventes"), ("expenses", "Dépenses"),
+                ("reports", "Rapports"), ("settings", "Paramètres"),
+                ("users", "Utilisateurs"), ("roles", "Rôles"), ("audit", "Audit")
+            ]
+            actions = [
+                ("read", "Consulter"), ("create", "Créer"), ("update", "Modifier"),
+                ("delete", "Supprimer"), ("export", "Exporter"), ("cancel", "Annuler")
+            ]
+            permissions = []
+            for mod_key, mod_name in modules:
+                for act_key, act_name in actions:
+                    if mod_key == "dashboard" and act_key != "read":
+                        continue
+                    if mod_key == "reports" and act_key not in ["read", "export"]:
+                        continue
+                    if mod_key == "audit" and act_key != "read":
+                        continue
+                    if act_key == "cancel" and mod_key != "sales":
+                        continue
+                    permissions.append({
+                        "permission_id": f"perm_{mod_key}_{act_key}",
+                        "module": mod_key,
+                        "action": act_key,
+                        "name_fr": f"{act_name} {mod_name}"
+                    })
+            await db.permissions.insert_many(permissions)
+            logger.info("Default permissions initialized")
+    except Exception as e:
+        logger.error(f"Startup initialization error (non-fatal): {e}")
     
     logger.info("Application startup complete")
 
